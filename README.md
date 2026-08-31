@@ -11,7 +11,7 @@ A native implementation of the **AI-DLC methodology** (AI-Driven Development Lif
 
 The methodology lives once, in a harness-neutral `core/`; each harness adds a thin surface that decides how it shows up on that harness. So you edit the methodology in one place, and every harness distribution is generated from it — no harness gets special treatment. (See [Repository layout](#repository-layout) for how the pieces fit together.)
 
-![version](https://img.shields.io/badge/version-2.6.125-blue)
+![version](https://img.shields.io/badge/version-2.6.126-blue)
 ![license](https://img.shields.io/badge/license-MIT--0-green)
 ![Kiro IDE](https://img.shields.io/badge/harness-Kiro%20IDE-orange)
 ![Kiro CLI](https://img.shields.io/badge/harness-Kiro%20CLI-orange)
@@ -274,8 +274,16 @@ One install serves both surfaces: the Cursor IDE and the CLI (`agent`) share the
 **2. Set up your project**
 
 ```bash
+mkdir -p your-project
+git -C your-project init
 bun dist/cursor/install.ts your-project
 ```
+
+Cursor discovers project hooks from the Git repository root and runs them only
+in a trusted workspace. The installer refuses a non-Git target or a target
+below another repository root because either shape leaves `.cursor/hooks.json`
+inert. Open `your-project/` as the workspace, mark it trusted, and fully restart
+Cursor after changing either repository or trust state.
 
 The `aidlc/` shell ships the pre-built `aidlc/spaces/default/memory/` method tree the engine reads; `/aidlc --doctor` fails its "workspace shell ready" check without it.
 
@@ -464,6 +472,7 @@ Most first-run trouble is one of these; each harness guide covers the rest.
 | `/aidlc --doctor` reports a Codex CLI version below 0.145.0 | Codex | Upgrade to Codex CLI 0.145.0 or later. Older releases either delay compact-session workflow-context restoration or break subagent attribution and hyphenated agent TOML resolution. |
 | Bedrock calls fail with `AccessDenied` or a model-not-found error | Claude, Codex | Enable model access for the harness's configured models in your AWS account and put working credentials on your SDK chain. Confirm `AWS_REGION` is a region where you enabled them. |
 | Hooks never fire (no audit rows, no gates) | Codex | Trust the hooks: from the AI-DLC source checkout run `bun install --frozen-lockfile`, then `bun scripts/package.ts codex trust --project <dir>` and replace any existing entries for that hook path; or start one TUI session and choose "Trust all." Untrusted hooks never run. |
+| Hooks never fire and approvals say no human reply arrived | Cursor | Run `git -C <project> init` if needed, open the exact Git root as the Cursor workspace, mark it trusted, verify **Customize > Hooks** lists `.cursor/hooks.json`, then fully restart Cursor. Cursor does not load project hooks from a non-Git or nested install target. |
 | Plugin stages or contributions disappeared after copying a new `dist/` | all | Re-run `/aidlc plugin sync`. Copying a fresh engine distribution restores the stock graph and core stage sources; compose-capable hosts also self-heal on the next session start. |
 | Skills or rules don't take effect after you copy a new `dist/` | all | Start a fresh session — harnesses load skills, agents, and rules at session start. |
 

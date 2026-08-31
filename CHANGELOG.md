@@ -1,6 +1,14 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [2.6.126] - 2026-08-31
+
+Cursor installs now fail before copying when the target is not the exact Git repository root, closing the silent state where `/aidlc` loads but project hooks never run and every human-presence checkpoint eventually refuses. **Upgrade:** for an affected existing project, run `git -C <project> init` (or move the install to the parent Git root), re-run `bun dist/cursor/install.ts <project>`, open and trust that exact root in Cursor, verify **Customize > Hooks** lists `.cursor/hooks.json`, then fully restart Cursor before resuming.
+
+* The Cursor installer rejects non-Git and nested targets without writing a partial framework tree, and names the exact `git init` or root-placement remedy.
+* `/aidlc --doctor` verifies Cursor is running at the exact Git root before workflow work begins; after progress, missing hook heartbeats and missing `HUMAN_TURN` receipts are failures rather than passing advisories.
+* Cursor recovery guidance preserves the human-authority boundary: it repairs project-hook discovery and workspace trust instead of bypassing or fabricating a human turn.
+
 ## [2.6.125] - 2026-08-30
 
 One systemic fix for the class of workflow dead ends where an integrity refusal prescribed a remedy that another guard refused. Every guard refusal now computes its recovery options from the live workflow state, a repeated identical refusal halts into a single recovery question instead of looping, review/summary attempt state is derived through one shared reducer instead of five independent audit scans, and the engine consults the same guards before directing an action, so a step that would be refused is never instructed: the recovery question or the executable next step is offered directly instead. **Upgrade:** re-copy your harness's `dist/<harness>/` tree into the project so the updated tools, review-freeze hook, and orchestrator skill replace the old copies.
