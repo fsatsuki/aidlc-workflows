@@ -107,6 +107,11 @@ import {
   listIntents,
   listSpaces,
   loadAgents,
+  clearActiveIntentCursor,
+  INTENT_STATUS_ABANDONED,
+  INTENT_STATUS_IN_FLIGHT,
+  isAbandonedStatus,
+  updateIntentStatus,
   loadScopeMapping,
   loadStageGraph,
   loadStageGraphAll,
@@ -375,8 +380,10 @@ Utilities:
   compose "<task>"  Suggest a plan tailored to this task (mid-workflow: adjust the steps not yet run)
   compose --report <path>  Build a plan from a scan report (sort findings into a fix-and-ship run)
   --new-scope "<task>"  Build a custom plan even when a ready-made one matches
-  intent list       List intents in the active space (read-only; --json for structured output)
+  intent list       List intents in the active space (read-only; --json for structured output; --all to include abandoned)
   intent switch <name>  Switch the active intent (bare intent <name> still works)
+  intent abandon <name>  Abandon an in-flight intent (terminal, reversible; record + audit preserved, hidden from the default listing)
+  intent restore <name>  Restore an abandoned intent back to in-flight
   space list        List spaces (read-only; --json for structured output)
   space switch <name>  Switch the active space (bare space <name> still works)
   space create <name>  Create a new space (space-create <name> still works)
@@ -4609,7 +4616,10 @@ function handleDoctor(projectDir: string, flags: Record<string, string> = {}): v
     const danglingRows: string[] = []; // registry rows whose dir vanished
     const orphanDirs: string[] = []; // on-disk dirs with no registry row
     for (const sp of listSpaces(projectDir)) {
-      for (const i of listIntents(projectDir, sp.name)) {
+      // includeAbandoned=true so an abandoned intent's row still claims its
+      // on-disk dir: without it the row is filtered out and its (still-present)
+      // record dir would be mis-reported as an orphan.
+      for (const i of listIntents(projectDir, sp.name, undefined, true)) {
         if (i.uuid !== "" && i.dirName === null) {
           danglingRows.push(`${sp.name}/${i.slug} (uuid ${i.uuid.slice(0, 8)}…)`);
         } else if (i.uuid === "" && i.status === "unknown") {
@@ -6047,6 +6057,110 @@ function handleUpgrade(): void {
 // intent / space — the verb families + the deterministic query layer
 // ---------------------------------------------------------------------------
 
+// Resolve an intent target (record-dir name or unambiguous slug) to its record
+// dir within the active space, searching ALL intents including abandoned ones.
+// Returns the matched IntentInfo, or die()s with the same guidance shape the
+// switch arm uses. Shared by abandon/restore so both resolve targets identically.
+function resolveIntentTarget(
+  projectDir: string,
+  space: string,
+  activeOverride: string | null,
+  target: string | undefined,
+  verb: string,
+): { dirName: string; slug: string; status: string; active: boolean } {
+  if (!target) {
+    die(`Usage: aidlc-utility intent ${verb} <name>`);
+  }
+  const t = target as string;
+  const intents = listIntents(projectDir, space, activeOverride, true);
+  let match = intents.find((i) => i.dirName === t);
+  if (!match) {
+    const bySlug = intents.filter((i) => i.slug === t && i.dirName !== null);
+    if (bySlug.length === 1) match = bySlug[0];
+    else if (bySlug.length > 1) {
+      die(
+        `Ambiguous intent "${t}" in space "${space}" (${bySlug.length} match). Use the full record-dir name: ${bySlug.map((i) => i.dirName).join(", ")}.`
+      );
+    }
+  }
+  if (!match || match.dirName === null) {
+    die(
+      `Unknown intent "${t}" in space "${space}". Run /aidlc intent list --all to see every intent including abandoned ones.`
+    );
+  }
+  const m = match as typeof intents[number] & { dirName: string };
+  return { dirName: m.dirName, slug: m.slug, status: m.status, active: m.active };
+}
+
+// `/aidlc intent abandon <name>` — retire an in-flight intent to the terminal
+// `abandoned` status. This is the first-class "I'm done with this one, stop it"
+// move: the registry row's status flips to `abandoned` so the intent drops out
+// of the default listing, while the record dir and audit shard are PRESERVED
+// (nothing is deleted or moved). If the abandoned intent is the active one, the
+// active-intent cursor is cleared so it no longer points at a terminal record.
+// Reversible via `intent restore`. Mutates under the WORKSPACE audit lock and
+// emits an INTENT_ABANDONED audit event, mirroring intent-create's transaction.
+function handleIntentAbandon(projectDir: string, target: string | undefined): void {
+  const selection = resolveWorkflowSelection(projectDir);
+  const space = selection.space;
+  const match = resolveIntentTarget(projectDir, space, selection.intent, target, "abandon");
+  if (isAbandonedStatus(match.status)) {
+    process.stdout.write(
+      `Intent "${match.dirName}" is already abandoned (space: ${space}). Restore it with /aidlc intent restore ${match.dirName}.\n`
+    );
+    return;
+  }
+  withAuditLock(projectDir, () => {
+    const changed = updateIntentStatus(projectDir, match.dirName, INTENT_STATUS_ABANDONED, space);
+    if (match.active) {
+      // The cursor must not keep pointing at a terminal record. Clearing it
+      // lets the lone-intent fallback resolve, or leaves the space with no
+      // active intent (the listing then prompts a switch).
+      clearActiveIntentCursor(projectDir, space);
+    }
+    appendAuditEvent(projectDir, "INTENT_ABANDONED", {
+      space,
+      intent: match.dirName,
+      slug: match.slug,
+      previous_status: match.status,
+      was_active: String(match.active),
+      changed: String(changed),
+    });
+  });
+  process.stdout.write(
+    `Abandoned intent "${match.dirName}" (space: ${space}). Record and audit trail are preserved; it is hidden from /aidlc intent (show with --all) and can be brought back with /aidlc intent restore ${match.dirName}.\n`
+  );
+}
+
+// `/aidlc intent restore <name>` — bring an abandoned intent back to `in-flight`
+// so it reappears in the default listing and can be switched to and continued.
+// The inverse of abandon; a no-op with a friendly message if the target is not
+// abandoned. Does NOT move the active cursor — restoring is not switching; the
+// operator switches to it explicitly afterward.
+function handleIntentRestore(projectDir: string, target: string | undefined): void {
+  const selection = resolveWorkflowSelection(projectDir);
+  const space = selection.space;
+  const match = resolveIntentTarget(projectDir, space, selection.intent, target, "restore");
+  if (!isAbandonedStatus(match.status)) {
+    process.stdout.write(
+      `Intent "${match.dirName}" is not abandoned (status: ${match.status}); nothing to restore.\n`
+    );
+    return;
+  }
+  withAuditLock(projectDir, () => {
+    const changed = updateIntentStatus(projectDir, match.dirName, INTENT_STATUS_IN_FLIGHT, space);
+    appendAuditEvent(projectDir, "INTENT_RESTORED", {
+      space,
+      intent: match.dirName,
+      slug: match.slug,
+      changed: String(changed),
+    });
+  });
+  process.stdout.write(
+    `Restored intent "${match.dirName}" to in-flight (space: ${space}). Switch to it with /aidlc intent ${match.dirName}.\n`
+  );
+}
+
 // Print an intent listing (the query layer's human OR --json mode). Both modes
 // read the SAME listSpaces/listIntents source so they never diverge. --json
 // shape: {active, spaces:[...], intents:[{uuid,slug,status,repos}]} — consumed
@@ -6055,10 +6169,11 @@ function handleUpgrade(): void {
 function printIntentListing(
   projectDir: string,
   asJson: boolean,
+  includeAbandoned = false,
 ): void {
   const selection = resolveWorkflowSelection(projectDir);
   const space = selection.space;
-  const intents = listIntents(projectDir, space, selection.intent);
+  const intents = listIntents(projectDir, space, selection.intent, includeAbandoned);
   const active = intents.find((i) => i.active);
   if (asJson) {
     process.stdout.write(
@@ -6090,6 +6205,15 @@ function printIntentListing(
   }
   if (!active) {
     out += `\n(no active intent — switch with /aidlc intent <name>)\n`;
+  }
+  if (!includeAbandoned) {
+    // Hint that abandoned intents exist but are hidden, so the count is not
+    // silently misleading. Cheap re-read against the same registry.
+    const all = listIntents(projectDir, space, selection.intent, true);
+    const hidden = all.length - intents.length;
+    if (hidden > 0) {
+      out += `\n(${hidden} abandoned intent${hidden === 1 ? "" : "s"} hidden — show with /aidlc intent list --all)\n`;
+    }
   }
   process.stdout.write(out);
 }
@@ -6132,11 +6256,19 @@ function handleIntent(
   const asJson = flags.json === "true";
   const verbOrTarget = positional[1];
   if (verbOrTarget === "list") {
-    printIntentListing(projectDir, asJson);
+    printIntentListing(projectDir, asJson, flags.all === "true");
     return;
   }
   if (verbOrTarget === "create") {
     handleIntentCreate(projectDir, flags);
+    return;
+  }
+  if (verbOrTarget === "abandon") {
+    handleIntentAbandon(projectDir, positional[2]);
+    return;
+  }
+  if (verbOrTarget === "restore") {
+    handleIntentRestore(projectDir, positional[2]);
     return;
   }
   const target = verbOrTarget === "switch" ? positional[2] : verbOrTarget;
@@ -6144,7 +6276,7 @@ function handleIntent(
     die("Usage: aidlc-utility intent switch <name>");
   }
   if (!target) {
-    printIntentListing(projectDir, asJson);
+    printIntentListing(projectDir, asJson, flags.all === "true");
     return;
   }
   // `intent help`/`-h` is a help request, not a switch to a record named
@@ -6159,7 +6291,10 @@ function handleIntent(
   }
   const selection = resolveWorkflowSelection(projectDir);
   const space = selection.space;
-  const intents = listIntents(projectDir, space, selection.intent);
+  // Include abandoned intents so an explicit `switch <name>` can still target
+  // one (e.g. to inspect it before restoring); the default LISTING still hides
+  // them. The abandon/restore verbs resolve their own targets separately.
+  const intents = listIntents(projectDir, space, selection.intent, true);
   // Exact record-dir match first; then a unique slug match.
   let match = intents.find((i) => i.dirName === target);
   if (!match) {
