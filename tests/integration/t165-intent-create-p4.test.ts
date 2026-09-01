@@ -1,4 +1,4 @@
-// covers: subcommand:aidlc-utility:intent-create, subcommand:aidlc-utility:intent, subcommand:aidlc-utility:space, subcommand:aidlc-utility:space-create, function:createIntent, function:listSpaces, function:listIntents, function:slugify, function:updateIntentStatus, function:migrateFlatLayout, function:resolveIntentRepoSet, function:discoverSiblingRepos
+// covers: subcommand:aidlc-utility:intent-create, subcommand:aidlc-utility:intent, subcommand:aidlc-utility:space, subcommand:aidlc-utility:space-create, function:createIntent, function:listSpaces, function:listIntents, function:slugify, function:updateIntentStatus, function:migrateFlatLayout, function:resolveIntentRepoSet, function:discoverSiblingRepos, function:clearActiveIntentCursor, function:isAbandonedStatus, function:recordDirMatches
 //
 // Mechanism: cli (spawned dist tools) + in-process pure-function asserts.
 // P4 - retire the user-facing --init; the engine auto-creates the first intent
@@ -43,6 +43,7 @@ import {
   PROJECT_DESCRIPTION_FILE,
   readAllAuditShards,
   readIntentRegistry,
+  recordDirMatches,
   setActiveIntentCursor,
   slugify,
   updateIntentStatus,
@@ -923,6 +924,65 @@ describe("t164 intent status lifecycle", () => {
     expect(util(["intent-create", "--scope", "bugfix"]).status).toBe(0);
     const abandoned = readIntentRegistry(proj).find((e) => e.scope === "bugfix");
     expect(abandoned?.status).toBe("in-flight");
+  });
+
+  // The first-class abandon/restore verbs (intent abandon <name> / restore).
+  // Distinct from the "left running" sense above: this is the explicit
+  // operator-driven terminal transition, its default-listing hide, --all
+  // reveal, record preservation, and reversal.
+  test("intent abandon retires an in-flight intent to a hidden terminal state; restore brings it back", () => {
+    // Two intents so abandoning one is not the lone-record degenerate case.
+    expect(util(["intent-create", "--scope", "classic", "--label", "auth"]).status).toBe(0);
+    const authDir = activeIntent(proj) as string;
+    expect(util(["intent-create", "--scope", "bugfix", "--label", "billing"]).status).toBe(0);
+
+    // Abandon the non-active one.
+    const ab = util(["intent", "abandon", authDir]);
+    expect(ab.status).toBe(0);
+    expect(ab.stdout).toContain("Abandoned intent");
+
+    // Registry row is terminal-abandoned, but the record dir is PRESERVED.
+    const row = readIntentRegistry(proj).find((e) => recordDirMatches(e, authDir));
+    expect(row?.status).toBe("abandoned");
+    expect(existsSync(join(intentsDir(proj), authDir, "aidlc-state.md"))).toBe(true);
+
+    // Default listing hides it; --all reveals it.
+    expect(listIntents(proj).some((i) => i.dirName === authDir)).toBe(false);
+    expect(listIntents(proj, undefined, undefined, true).some((i) => i.dirName === authDir)).toBe(
+      true,
+    );
+
+    // --json default hides it too.
+    const listJson = JSON.parse(util(["intent", "list", "--json"]).stdout) as {
+      intents: { dirName: string | null }[];
+    };
+    expect(listJson.intents.some((i) => i.dirName === authDir)).toBe(false);
+
+    // Restore returns it to in-flight and back into the default listing.
+    const rs = util(["intent", "restore", authDir]);
+    expect(rs.status).toBe(0);
+    expect(rs.stdout).toContain("Restored intent");
+    expect(
+      readIntentRegistry(proj).find((e) => recordDirMatches(e, authDir))?.status,
+    ).toBe("in-flight");
+    expect(listIntents(proj).some((i) => i.dirName === authDir)).toBe(true);
+  });
+
+  test("abandoning the active intent clears the cursor; restore of a non-abandoned intent is a no-op", () => {
+    expect(util(["intent-create", "--scope", "classic", "--label", "solo"]).status).toBe(0);
+    const dir = activeIntent(proj) as string;
+
+    // restore on an in-flight intent: friendly no-op, status unchanged.
+    const noop = util(["intent", "restore", dir]);
+    expect(noop.status).toBe(0);
+    expect(noop.stdout).toContain("not abandoned");
+    expect(readIntentRegistry(proj)[0].status).toBe("in-flight");
+
+    // Abandon the active (and only) intent → its registry row is abandoned.
+    expect(util(["intent", "abandon", dir]).status).toBe(0);
+    expect(
+      readIntentRegistry(proj).find((e) => recordDirMatches(e, dir))?.status,
+    ).toBe("abandoned");
   });
 });
 

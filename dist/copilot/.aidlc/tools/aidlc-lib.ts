@@ -613,6 +613,31 @@ export const ACTIVE_SPACE_POINTER = "active-space";
 export const ACTIVE_INTENT_POINTER = "active-intent";
 export const DEFAULT_SPACE = "default";
 
+// --- Intent lifecycle statuses (the registry-row `status` field) -------------
+//
+// An intent row's `status` moves through a small, explicit lifecycle. Historic
+// callers wrote the string literals "in-flight" and "complete" directly; these
+// constants name every value in one place so the abandon/restore verbs, the
+// listing filter, and the doctor reconciliation all agree on the vocabulary.
+//   - IN_FLIGHT: created, work under way (the initial status).
+//   - COMPLETE:  the workflow ran to its terminal completion.
+//   - ABANDONED: a terminal status set by `intent abandon` — the operator gave
+//                up on the intent partway through. The record dir and audit
+//                shard are PRESERVED; only the registry row's status flips, so
+//                the intent drops out of the default listing (shown with --all)
+//                without losing any auditable history. `intent restore` returns
+//                it to IN_FLIGHT.
+export const INTENT_STATUS_IN_FLIGHT = "in-flight";
+export const INTENT_STATUS_COMPLETE = "complete";
+export const INTENT_STATUS_ABANDONED = "abandoned";
+
+// A terminal status is one the lifecycle does not advance out of on its own.
+// `abandoned` is terminal-but-reversible (via restore); `complete` is terminal.
+export function isAbandonedStatus(status: string): boolean {
+  return status === INTENT_STATUS_ABANDONED;
+}
+
+
 // --- Terminal-command classification (the deterministic-dispatch seam) ---
 //
 // A small set of `/aidlc` commands are TERMINAL: they map 1:1 to an
@@ -2449,6 +2474,7 @@ export function listIntents(
   projectDir: string,
   space?: string,
   activeIntentOverride?: string | null,
+  includeAbandoned = false,
 ): IntentInfo[] {
   const sp = space ?? activeSpace(projectDir);
   const registry = readIntentRegistry(projectDir, sp);
@@ -2485,7 +2511,13 @@ export function listIntents(
       active: d === activeDir,
     });
   }
-  return infos;
+  // Abandoned intents are terminal and, by default, hidden from the listing so
+  // it reflects only live work — the whole point of the abandon verb. Callers
+  // that want the full picture (the `--all` listing, the doctor reconciliation)
+  // pass includeAbandoned=true. An abandoned row that is ALSO the active cursor
+  // is never hidden: leaving the active intent invisible would strand the user.
+  if (includeAbandoned) return infos;
+  return infos.filter((i) => !isAbandonedStatus(i.status) || i.active);
 }
 
 // Materialize the active-space cursor without overwriting a concurrent explicit
@@ -2522,6 +2554,20 @@ export function setActiveIntentCursor(projectDir: string, dirName: string, space
   try {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, ACTIVE_INTENT_POINTER), `${dirName}\n`, "utf-8");
+  } catch {
+    /* per-user cursor; best-effort */
+  }
+}
+
+// Clear the active-intent cursor (remove the per-user pointer file) so no
+// intent is active in the space. Used when abandoning the active intent: the
+// cursor must not keep pointing at a terminal record. Best-effort and idempotent
+// — an absent cursor is a no-op. Note: with exactly one record left on disk,
+// activeIntent() falls back to that lone record, which is the intended behavior.
+export function clearActiveIntentCursor(projectDir: string, space?: string): void {
+  const dir = intentsDir(projectDir, space);
+  try {
+    rmSync(join(dir, ACTIVE_INTENT_POINTER), { force: true });
   } catch {
     /* per-user cursor; best-effort */
   }
@@ -3935,7 +3981,7 @@ export function createIntent(
     // or fresh-greenfield case) records NO repos row; the lone repo is inferred on
     // the construction path (resolveConstructionRepo). Only a non-empty set is
     // persisted, so existing single-repo + flat-legacy intents stay byte-identical.
-    { uuid, slug, dirName, scope, repos: repos && repos.length > 0 ? repos : undefined, status: "in-flight" },
+    { uuid, slug, dirName, scope, repos: repos && repos.length > 0 ? repos : undefined, status: INTENT_STATUS_IN_FLIGHT },
     space,
   );
   setActiveIntentCursor(projectDir, dirName, space);
@@ -4104,7 +4150,7 @@ export function migrateFlatLayout(projectDir: string): FlatMigrationResult | nul
     // (4) Append to intents.json + set the active-intent cursor (workspace bucket).
     appendIntentToRegistry(
       projectDir,
-      { uuid, slug, dirName: intentDirName, scope: undefined, repos: undefined, status: "in-flight" },
+      { uuid, slug, dirName: intentDirName, scope: undefined, repos: undefined, status: INTENT_STATUS_IN_FLIGHT },
       space,
     );
     setActiveIntentCursor(projectDir, intentDirName, space);
