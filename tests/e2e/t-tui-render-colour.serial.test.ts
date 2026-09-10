@@ -47,6 +47,7 @@ import { join } from "node:path";
 import { resolveWinNode } from "../harness/tui-drive.ts";
 import {
   cleanupTuiProjectAfterKill,
+  clearClaudeStartupModals,
   setupTuiProject,
 } from "../harness/tui-fixtures.ts";
 
@@ -158,13 +159,8 @@ describe("t-tui-render statusline COLOUR branch (live turn populates ctx:%, macO
         ]);
         expect(started.rc).toBe(0);
 
-        // --- clear the two startup modals (idempotent) ------------------------
-        if (waitFor(session, "trust this folder", 60000, 600)) {
-          drive(["send", "--session", session, "--keys", "1"]);
-        }
-        if (waitFor(session, "Bypass Permissions mode", 15000, 600)) {
-          drive(["send", "--session", session, "--keys", "2"]);
-        }
+        // --- clear the startup modals (idempotent) ------------------------
+        clearClaudeStartupModals(drive, waitFor, session);
         // P9: orientation prefix ("<intent-slug> · ") sits between [AIDLC] and the
         // phase, so match with .* rather than a contiguous gap.
         expect(waitFor(session, "\\[AIDLC\\].*IDEATION", 45000, 1000)).toBe(true);

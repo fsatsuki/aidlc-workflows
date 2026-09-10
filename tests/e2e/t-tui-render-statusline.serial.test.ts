@@ -56,6 +56,7 @@ import { join } from "node:path";
 import { resolveWinNode } from "../harness/tui-drive.ts";
 import {
   cleanupTuiProjectAfterKill,
+  clearClaudeStartupModals,
   setupTuiProject,
 } from "../harness/tui-fixtures.ts";
 
@@ -155,16 +156,8 @@ function captureWorkflowStatusline(): string {
     ]);
     expect(started.rc).toBe(0);
 
-    // --- clear the two startup modals (idempotent) --------------------------
-    // 3a. workspace-trust dialog: "1. Yes, I trust this folder".
-    if (waitFor(session, "trust this folder", 60000, 600)) {
-      drive(["send", "--session", session, "--keys", "1"]);
-    }
-    // 3b. bypass-permissions warning: "2. Yes, I accept" (only with
-    // --dangerously-skip-permissions; no-ops when bypass is already persisted).
-    if (waitFor(session, "Bypass Permissions mode", 15000, 600)) {
-      drive(["send", "--session", session, "--keys", "2"]);
-    }
+    // --- clear the startup modals (idempotent) -------------------------------
+    clearClaudeStartupModals(drive, waitFor, session);
 
     // --- wait for the WORKFLOW statusline (IDEATION, not "ready") -----------
     // P9: the statusline now carries the orientation prefix ("<intent-slug> · ")

@@ -70,6 +70,11 @@ import {
   REPO_ROOT,
   seededRecordDir,
 } from "../harness/fixtures.ts";
+import {
+  codexExecFlags,
+  codexHomeConfigPrefix,
+  userCodexEnv,
+} from "../harness/exec-drive.ts";
 
 const CODEX_DIST = join(REPO_ROOT, "dist", "codex");
 const CODEX_BIN = process.env.AIDLC_CODEX_BIN ?? "codex";
@@ -158,17 +163,21 @@ function setupCodexProject(): { proj: string; home: string; root: string } {
   writeFileSync(
     join(home, "config.toml"),
     [
-      `model = "openai.gpt-5.5"`,
-      `model_provider = "amazon-bedrock"`,
-      `model_context_window = 1000000`,
-      `model_reasoning_effort = "low"`,
-      ``,
-      `[model_providers.amazon-bedrock.aws]`,
-      `profile = "${AWS_PROFILE}"`,
-      `region = "${AWS_REGION}"`,
-      ``,
-      `[shell_environment_policy]`,
-      `set = { AIDLC_RULES_DIR = ".codex/aidlc-rules" }`,
+      codexHomeConfigPrefix(
+        [
+          `model = "openai.gpt-5.5"`,
+          `model_provider = "amazon-bedrock"`,
+          `model_context_window = 1000000`,
+          `model_reasoning_effort = "low"`,
+          ``,
+          `[model_providers.amazon-bedrock.aws]`,
+          `profile = "${AWS_PROFILE}"`,
+          `region = "${AWS_REGION}"`,
+          ``,
+          `[shell_environment_policy]`,
+          `set = { AIDLC_RULES_DIR = ".codex/aidlc-rules" }`,
+        ].join("\n"),
+      ),
       ``,
       `[projects."${proj}"]`,
       `trust_level = "trusted"`,
@@ -190,12 +199,14 @@ function codexTurn(
   prompt: string,
   opts: { resume?: boolean } = {},
 ): { rc: number; stdout: string; stderr: string } {
-  const argv = opts.resume ? ["exec", "resume", "--last", prompt] : ["exec", prompt];
+  const argv = opts.resume
+    ? ["exec", ...codexExecFlags(), "resume", "--last", prompt]
+    : ["exec", ...codexExecFlags(), prompt];
   const r = spawnSync(CODEX_BIN, argv, {
     cwd: proj,
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, CODEX_HOME: home },
+    env: { ...process.env, ...userCodexEnv(), CODEX_HOME: home },
     timeout: PER_BEAT_TIMEOUT_MS,
   });
   return { rc: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };

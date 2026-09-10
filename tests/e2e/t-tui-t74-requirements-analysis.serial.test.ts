@@ -96,6 +96,7 @@ import {
 } from "../harness/fixtures.ts";
 import {
   cleanupTuiProjectAfterKill,
+  clearClaudeStartupModals,
   setupTuiProject,
 } from "../harness/tui-fixtures.ts";
 
@@ -208,13 +209,8 @@ describe("t-tui-t74-requirements-analysis (answering AUQ gates commits the requi
           "--dangerously-skip-permissions",
         ]).rc).toBe(0);
 
-        // clear the two startup modals (idempotent — only act if present)
-        if (waitFor(session, "trust this folder", 60000, 600)) {
-          drive(["send", "--session", session, "--keys", "1"]);
-        }
-        if (waitFor(session, "Bypass Permissions mode", 15000, 600)) {
-          drive(["send", "--session", session, "--keys", "2"]);
-        }
+        // clear the startup modals (idempotent — only act if present)
+        clearClaudeStartupModals(drive, waitFor, session);
         // Seeded mid-inception -> the statusline paints the workflow phase
         // (INCEPTION), not the fresh "ready" line. Either is a valid pre-prompt
         // resting state, but the seeded fixture is INCEPTION.

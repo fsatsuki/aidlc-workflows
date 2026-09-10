@@ -32,6 +32,7 @@ import { join } from "node:path";
 import { resolveWinNode } from "../harness/tui-drive.ts";
 import {
   cleanupTuiProjectAfterKill,
+  clearClaudeStartupModals,
   setupTuiProject,
 } from "../harness/tui-fixtures.ts";
 
@@ -122,13 +123,8 @@ describe("t-tui-render statusline COMPLETE sentinel (seeded completed, no tokens
         ]);
         expect(started.rc).toBe(0);
 
-        // --- clear the two startup modals (idempotent) ------------------------
-        if (waitFor(session, "trust this folder", 60000, 600)) {
-          drive(["send", "--session", session, "--keys", "1"]);
-        }
-        if (waitFor(session, "Bypass Permissions mode", 15000, 600)) {
-          drive(["send", "--session", session, "--keys", "2"]);
-        }
+        // --- clear the startup modals (idempotent) ------------------------
+        clearClaudeStartupModals(drive, waitFor, session);
 
         // --- wait for the COMPLETE sentinel + assert the full grid ------------
         // P9: the orientation prefix ("<intent-slug> · ") sits between [AIDLC]

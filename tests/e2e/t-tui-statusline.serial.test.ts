@@ -34,7 +34,7 @@ import * as os from "node:os";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveWinNode } from "../harness/tui-drive.ts";
-import { cleanupTuiProjectAfterKill } from "../harness/tui-fixtures.ts";
+import { cleanupTuiProjectAfterKill, clearClaudeStartupModals } from "../harness/tui-fixtures.ts";
 
 const DRIVER = join(import.meta.dir, "..", "harness", "tui-drive.ts");
 const AIDLC_SRC = join(import.meta.dir, "..", "..", "dist", "claude", ".claude");
@@ -135,16 +135,8 @@ describe("t-tui-statusline (statusline renders in a real terminal)", () => {
         ]);
         expect(started.rc).toBe(0);
 
-        // --- step 3: clear the two startup modals (idempotent) ----------------
-        // 3a. workspace-trust dialog: "1. Yes, I trust this folder".
-        if (waitFor(session, "trust this folder", 60000, 600)) {
-          drive(["send", "--session", session, "--keys", "1"]);
-        }
-        // 3b. bypass-permissions warning: "2. Yes, I accept" (only with
-        // --dangerously-skip-permissions).
-        if (waitFor(session, "Bypass Permissions mode", 15000, 600)) {
-          drive(["send", "--session", session, "--keys", "2"]);
-        }
+        // --- step 3: clear the startup modals (idempotent) --------------------
+        clearClaudeStartupModals(drive, waitFor, session);
 
         // --- step 4: wait for the statusline marker ---------------------------
         const sawMarker = waitFor(session, "\\[AIDLC\\]", 45000, 1000);

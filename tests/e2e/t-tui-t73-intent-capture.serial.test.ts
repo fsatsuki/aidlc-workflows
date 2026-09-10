@@ -79,6 +79,7 @@ import { readAllAuditShards } from "../../dist/claude/.claude/tools/aidlc-lib.ts
 import { seededRecordDir, seededStateFile } from "../harness/fixtures.ts";
 import {
   cleanupTuiProjectAfterKill,
+  clearClaudeStartupModals,
   markdownH2Section,
   setupTuiProject,
 } from "../harness/tui-fixtures.ts";
@@ -208,13 +209,8 @@ describe("t-tui-t73-intent-capture (answering the stage gate produces artifacts 
           "--dangerously-skip-permissions",
         ]).rc).toBe(0);
 
-        // clear the two startup modals (idempotent — only act if present)
-        if (waitFor(session, "trust this folder", 60000, 600)) {
-          drive(["send", "--session", session, "--keys", "1"]);
-        }
-        if (waitFor(session, "Bypass Permissions mode", 15000, 600)) {
-          drive(["send", "--session", session, "--keys", "2"]);
-        }
+        // clear the startup modals (idempotent — only act if present).
+        clearClaudeStartupModals(drive, waitFor, session);
         // Seeded state => the workflow statusline paints the live IDEATION phase
         // (not the no-workflow "ready" line). Wait for it before driving.
         expect(waitFor(session, "\\[AIDLC\\].*IDEATION", 45000, 800)).toBe(true);

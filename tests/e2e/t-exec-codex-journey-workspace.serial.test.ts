@@ -46,6 +46,11 @@ import {
   setupWorkspaceJourney,
   type WorkspaceJourney,
 } from "../harness/fixtures.ts";
+import {
+  codexExecFlags,
+  codexHomeConfigPrefix,
+  userCodexEnv,
+} from "../harness/exec-drive.ts";
 
 const CODEX_DIST = join(REPO_ROOT, "dist", "codex");
 const CODEX_BIN = process.env.AIDLC_CODEX_BIN ?? "codex";
@@ -128,17 +133,21 @@ function setupCodexJourney(): WorkspaceJourney {
   writeFileSync(
     join(home, "config.toml"),
     [
-      `model = "openai.gpt-5.5"`,
-      `model_provider = "amazon-bedrock"`,
-      `model_context_window = 1000000`,
-      `model_reasoning_effort = "low"`,
-      ``,
-      `[model_providers.amazon-bedrock.aws]`,
-      `profile = "${AWS_PROFILE}"`,
-      `region = "${AWS_REGION}"`,
-      ``,
-      `[shell_environment_policy]`,
-      `set = { AIDLC_RULES_DIR = ".codex/aidlc-rules" }`,
+      codexHomeConfigPrefix(
+        [
+          `model = "openai.gpt-5.5"`,
+          `model_provider = "amazon-bedrock"`,
+          `model_context_window = 1000000`,
+          `model_reasoning_effort = "low"`,
+          ``,
+          `[model_providers.amazon-bedrock.aws]`,
+          `profile = "${AWS_PROFILE}"`,
+          `region = "${AWS_REGION}"`,
+          ``,
+          `[shell_environment_policy]`,
+          `set = { AIDLC_RULES_DIR = ".codex/aidlc-rules" }`,
+        ].join("\n"),
+      ),
       ``,
       `[projects."${root}"]`,
       `trust_level = "trusted"`,
@@ -156,11 +165,11 @@ function execCodex(
   prompt: string,
   timeoutMs: number = VERB_EXEC_MS,
 ): { rc: number; out: string } {
-  const r = spawnSync(CODEX_BIN, ["exec", prompt], {
+  const r = spawnSync(CODEX_BIN, ["exec", ...codexExecFlags(), prompt], {
     cwd: proj,
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, CODEX_HOME: home },
+    env: { ...process.env, ...userCodexEnv(), CODEX_HOME: home },
     timeout: timeoutMs,
   });
   return { rc: r.status ?? -1, out: `${r.stdout ?? ""}\n${r.stderr ?? ""}` };

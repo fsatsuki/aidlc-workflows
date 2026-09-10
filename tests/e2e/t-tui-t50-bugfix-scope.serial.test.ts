@@ -103,6 +103,7 @@ import {
 import { gridHasMenu, resolveWinNode } from "../harness/tui-drive.ts";
 import {
   cleanupTuiProjectAfterKill,
+  clearClaudeStartupModals,
   setupTuiProject,
 } from "../harness/tui-fixtures.ts";
 import { activeSpace } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
@@ -220,13 +221,8 @@ describe("t-tui-t50-bugfix-scope (answering gates advances bugfix lifecycle on d
           "--dangerously-skip-permissions",
         ]).rc).toBe(0);
 
-        // clear the two startup modals (idempotent — only act if present)
-        if (waitFor(session, "trust this folder", 60000, 600)) {
-          drive(["send", "--session", session, "--keys", "1"]);
-        }
-        if (waitFor(session, "Bypass Permissions mode", 15000, 600)) {
-          drive(["send", "--session", session, "--keys", "2"]);
-        }
+        // clear the startup modals (idempotent — only act if present)
+        clearClaudeStartupModals(drive, waitFor, session);
         // Fresh project (no seeded state) -> the no-workflow "ready" line.
         expect(waitFor(session, "\\[AIDLC\\].*ready", 45000, 800)).toBe(true);
 

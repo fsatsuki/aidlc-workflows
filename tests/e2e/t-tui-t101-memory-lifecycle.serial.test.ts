@@ -57,6 +57,7 @@ import { seededRecordDir, seededStateFile } from "../harness/fixtures.ts";
 import { resolveWinNode } from "../harness/tui-drive.ts";
 import {
   cleanupTuiProjectAfterKill,
+  clearClaudeStartupModals,
   setupTuiProject,
 } from "../harness/tui-fixtures.ts";
 
@@ -184,13 +185,8 @@ describe("t-tui-t101 (memory.md start→approval lifecycle through a driven gate
           ]).rc,
         ).toBe(0);
 
-        // clear the two startup modals (idempotent — only act if present)
-        if (waitFor(session, "trust this folder", 60000, 600)) {
-          drive(["send", "--session", session, "--keys", "1"]);
-        }
-        if (waitFor(session, "Bypass Permissions mode", 15000, 600)) {
-          drive(["send", "--session", session, "--keys", "2"]);
-        }
+        // clear the startup modals (idempotent — only act if present)
+        clearClaudeStartupModals(drive, waitFor, session);
         // Seeded mid-ideation state -> the statusline paints the WORKFLOW line
         // ([AIDLC] IDEATION), not the no-workflow "ready" line.
         expect(waitFor(session, "\\[AIDLC\\].*IDEATION", 45000, 800)).toBe(true);

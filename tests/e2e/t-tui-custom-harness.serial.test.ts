@@ -137,6 +137,7 @@ import { resolveWinNode } from "../harness/tui-drive.ts";
 import {
   cleanupTuiProject,
   cleanupTuiProjectAfterKill,
+  clearClaudeStartupModals,
   compileTuiRuntimeGraph,
   setupTuiProject,
 } from "../harness/tui-fixtures.ts";
@@ -298,12 +299,7 @@ describe("t-tui-custom-harness (the {sdk,tui} two-driver journey)", () => {
             "--dangerously-skip-permissions",
           ]).rc,
         ).toBe(0);
-        if (waitFor(session, "trust this folder", 60000, 600)) {
-          drive(["send", "--session", session, "--keys", "1"]);
-        }
-        if (waitFor(session, "Bypass Permissions mode", 15000, 600)) {
-          drive(["send", "--session", session, "--keys", "2"]);
-        }
+        clearClaudeStartupModals(drive, waitFor, session);
         // The custom stage is in INCEPTION — wait for the workflow statusline.
         // P9: the orientation prefix ("<intent-slug> · ") sits between [AIDLC] and
         // the phase, so match with .* rather than a contiguous gap.
@@ -486,12 +482,7 @@ describe("t-tui-custom-harness (the {sdk,tui} two-driver journey)", () => {
             "--dangerously-skip-permissions",
           ]).rc,
         ).toBe(0);
-        if (waitFor(session, "trust this folder", 60000, 600)) {
-          drive(["send", "--session", session, "--keys", "1"]);
-        }
-        if (waitFor(session, "Bypass Permissions mode", 15000, 600)) {
-          drive(["send", "--session", session, "--keys", "2"]);
-        }
+        clearClaudeStartupModals(drive, waitFor, session);
         expect(waitFor(session, "\\[AIDLC\\].*(ready|INCEPTION)", 45000, 800)).toBe(true);
 
         // Resume the pre-initialized custom-scope workflow. answer-gate below

@@ -91,6 +91,56 @@ export function isolatedTuiUserProfileEnv(
   return env;
 }
 
+/**
+ * Clear Claude's known pre-workflow startup modals in the order they can
+ * appear, each idempotent (only acts if its pattern is currently painted).
+ *
+ * The model-upgrade nag ("Newer Opus model available") is checked FIRST: it
+ * can paint before the trust/bypass modals and, unanswered, blocks the
+ * screen behind it forever (the other two waitFor calls then time out
+ * against the same frozen pane). It is an arrow-nav menu defaulted to
+ * "1. Yes" (restart Claude Code to switch models) — Down + Enter picks
+ * "2. No" to keep the run going without a mid-session restart.
+ *
+ * The trust-folder modal is ALSO an arrow-nav menu ("❯ No, exit" / "Yes, I
+ * trust this folder", no numeric labels) on current Claude Code, so a bare
+ * "1" keystroke does not move its selection and the trailing Enter confirms
+ * "No, exit" — killing Claude instead of dismissing the modal. Preseeding
+ * onboarding (tui-drive.ts preseedClaudeOnboarding) means this modal should
+ * not paint at all in normal operation; Down + Enter here is the fallback if
+ * it does. `drive`/`waitFor` are the caller's own (each *.serial.test.ts
+ * defines its own thin tui-drive.ts spawn wrapper).
+ */
+export function clearClaudeStartupModals(
+  drive: (args: string[]) => { rc: number },
+  waitFor: (
+    session: string,
+    pattern: string,
+    timeoutMs: number,
+    stableMs: number,
+  ) => boolean,
+  session: string,
+): void {
+  if (waitFor(session, "Newer Opus model available", 15000, 600)) {
+    drive(["send", "--session", session, "--keys", "Down", "--no-enter"]);
+    drive(["send", "--session", session, "--keys", "Enter", "--no-enter"]);
+  }
+  if (waitFor(session, "trust this folder", 60000, 600)) {
+    drive(["send", "--session", session, "--keys", "Down", "--no-enter"]);
+    drive(["send", "--session", session, "--keys", "Enter", "--no-enter"]);
+  }
+  // Also an arrow-nav menu on current Claude Code ("❯ No, exit" / "Yes, I
+  // accept", no numeric labels) defaulted to "No, exit" — a bare "2"
+  // keystroke does not move the selection, so the auto-appended Enter
+  // confirms "No, exit" and KILLS Claude instead of dismissing the modal
+  // (verified live: this previously exited the session mid-startup). Down +
+  // Enter selects "Yes, I accept".
+  if (waitFor(session, "Bypass Permissions mode", 15000, 600)) {
+    drive(["send", "--session", session, "--keys", "Down", "--no-enter"]);
+    drive(["send", "--session", session, "--keys", "Enter", "--no-enter"]);
+  }
+}
+
 /** Match a rendered Claude response only after the empty input prompt returns.
  * A sentinel can appear while output is still streaming; the U+276F prompt
  * below is the post-turn idle input row, followed by the persistent mode row. */

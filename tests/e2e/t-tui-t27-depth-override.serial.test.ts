@@ -87,6 +87,7 @@ import { readAllAuditShards } from "../../dist/claude/.claude/tools/aidlc-lib.ts
 import { seededAuditDir, seededStateFile } from "../harness/fixtures.ts";
 import {
   cleanupTuiProjectAfterKill,
+  clearClaudeStartupModals,
   setupTuiProject,
 } from "../harness/tui-fixtures.ts";
 
@@ -195,7 +196,7 @@ function skipReason(): string | null {
 const SKIP_REASON = skipReason();
 
 // Shared launch: set up a project (seeded mid-ideation + audit), boot the claude
-// TUI, clear the two startup modals, and wait for the WORKFLOW statusline (not
+// TUI, clear the startup modals, and wait for the WORKFLOW statusline (not
 // `ready`) so we KNOW the override lands against a live workflow row. Returns the
 // session name + project path; the caller drives the slash command and cleans up.
 function bootSeededWorkflow(tag: string): { session: string; proj: string } {
@@ -218,13 +219,8 @@ function bootSeededWorkflow(tag: string): { session: string; proj: string } {
       "--dangerously-skip-permissions",
     ]).rc,
   ).toBe(0);
-  // clear the two startup modals (idempotent — only act if present)
-  if (waitFor(session, "trust this folder", 60000, 600)) {
-    drive(["send", "--session", session, "--keys", "1"]);
-  }
-  if (waitFor(session, "Bypass Permissions mode", 15000, 600)) {
-    drive(["send", "--session", session, "--keys", "2"]);
-  }
+  // clear the startup modals (idempotent — only act if present)
+  clearClaudeStartupModals(drive, waitFor, session);
   // The seeded mid-ideation state paints the WORKFLOW line (IDEATION), not the
   // no-workflow "ready" line. Anchor the override against the live workflow row.
   expect(waitFor(session, "\\[AIDLC\\].*IDEATION", 45000, 1000)).toBe(true);

@@ -27,6 +27,7 @@ import { join } from "node:path";
 import { stateFilePathFor } from "../harness/sdk-drive.ts";
 import {
   cleanupTuiProjectAfterKill,
+  clearClaudeStartupModals,
   setupTuiProject,
 } from "../harness/tui-fixtures.ts";
 
@@ -83,12 +84,7 @@ describe("t-tui compose front journey (live claude TUI)", () => {
           "--", "claude", "--dangerously-skip-permissions",
         ]).rc).toBe(0);
 
-        if (waitFor(session, "trust this folder", 60000, 600)) {
-          drive(["send", "--session", session, "--keys", "1"]);
-        }
-        if (waitFor(session, "Bypass Permissions mode", 15000, 600)) {
-          drive(["send", "--session", session, "--keys", "2"]);
-        }
+        clearClaudeStartupModals(drive, waitFor, session);
         expect(waitFor(session, "\\[AIDLC\\].*ready", 45000, 800)).toBe(true);
 
         drive([

@@ -98,6 +98,7 @@ import { recordDirFor, stateFilePathFor } from "../harness/sdk-drive.ts";
 import { resolveWinNode } from "../harness/tui-drive.ts";
 import {
   cleanupTuiProjectAfterKill,
+  clearClaudeStartupModals,
   setupTuiProject,
 } from "../harness/tui-fixtures.ts";
 
@@ -231,7 +232,7 @@ describe("t-tui-t58 workshop-scope (skips Ideation, runs Inception+ at Standard/
       let sawMenu = false;
       let pollTimer: ReturnType<typeof setInterval> | undefined;
       try {
-        // --- launch the claude TUI + clear the two startup modals ----------------
+        // --- launch the claude TUI + clear the startup modals ----------------
         expect(
           drive([
             "start",
@@ -248,12 +249,7 @@ describe("t-tui-t58 workshop-scope (skips Ideation, runs Inception+ at Standard/
             "--dangerously-skip-permissions",
           ]).rc,
         ).toBe(0);
-        if (waitFor(session, "trust this folder", 60000, 600)) {
-          drive(["send", "--session", session, "--keys", "1"]);
-        }
-        if (waitFor(session, "Bypass Permissions mode", 15000, 600)) {
-          drive(["send", "--session", session, "--keys", "2"]);
-        }
+        clearClaudeStartupModals(drive, waitFor, session);
         // Fresh project -> the no-workflow `[AIDLC] ready` baseline.
         expect(waitFor(session, "\\[AIDLC\\].*ready", 45000, 800)).toBe(true);
 

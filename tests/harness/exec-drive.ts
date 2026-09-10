@@ -5,12 +5,14 @@
 import { spawnSync } from "node:child_process";
 import {
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { REPO_ROOT } from "./fixtures.ts";
 
@@ -35,6 +37,51 @@ const CURSOR_MODEL = process.env.AIDLC_CURSOR_MODEL ?? "auto";
 
 const TIMEOUT_S = Number.parseInt(process.env.AIDLC_TEST_TIMEOUT ?? "600", 10);
 const TEST_TIMEOUT_MS = (Number.isFinite(TIMEOUT_S) ? TIMEOUT_S : 600) * 1000;
+
+// AIDLC_CODEX_HOME_SOURCE=user and AIDLC_CODEX_BYPASS_SANDBOX=1 (the Claude
+// `AIDLC_TUI_SETTING_SOURCES=user,project` / bwrap-less-container escape
+// hatches for Codex, verified live): a hardcoded AWS-profile Bedrock block
+// cannot express a bearer-token (AWS_BEARER_TOKEN_BEDROCK) or BYOK auth setup,
+// and codex's built-in bubblewrap/Seatbelt sandbox fails outright in an
+// already-externally-sandboxed container with no mount-namespace permissions.
+const CODEX_HOME_SOURCE = process.env.AIDLC_CODEX_HOME_SOURCE;
+const CODEX_BYPASS_SANDBOX = process.env.AIDLC_CODEX_BYPASS_SANDBOX === "1";
+
+function userCodexHomeDir(): string {
+  return process.env.AIDLC_CODEX_USER_HOME ?? join(homedir(), ".codex");
+}
+
+/** The scratch CODEX_HOME config.toml's provider/auth prefix: under
+ *  AIDLC_CODEX_HOME_SOURCE=user, the caller's real `~/.codex/config.toml`
+ *  (carrying whatever auth the user's Codex install already has) instead of
+ *  the hardcoded AWS-profile Bedrock block. */
+export function codexHomeConfigPrefix(hardcoded: string): string {
+  if (CODEX_HOME_SOURCE !== "user") return hardcoded;
+  return readFileSync(join(userCodexHomeDir(), "config.toml"), "utf-8");
+}
+
+/** codex does not source `.env` itself; under AIDLC_CODEX_HOME_SOURCE=user,
+ *  forward the user's `~/.codex/.env` (e.g. AWS_BEARER_TOKEN_BEDROCK) into
+ *  the exec child's env, mirroring what an interactive `codex` session picks
+ *  up from the user's own shell. */
+export function userCodexEnv(): Record<string, string> {
+  if (CODEX_HOME_SOURCE !== "user") return {};
+  const envPath = join(userCodexHomeDir(), ".env");
+  if (!existsSync(envPath)) return {};
+  const out: Record<string, string> = {};
+  for (const line of readFileSync(envPath, "utf-8").split(/\r?\n/)) {
+    const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line);
+    if (m) out[m[1]] = m[2].trim().replace(/^["']|["']$/g, "");
+  }
+  return out;
+}
+
+/** Extra `codex exec` flags — currently just the sandbox-bypass escape hatch
+ *  under AIDLC_CODEX_BYPASS_SANDBOX=1. Splice right after "exec" (works for
+ *  both the plain-prompt and `exec resume --last <prompt>` invocation shapes). */
+export function codexExecFlags(): string[] {
+  return CODEX_BYPASS_SANDBOX ? ["--dangerously-bypass-approvals-and-sandbox"] : [];
+}
 
 function initializeGit(projectDir: string): void {
   for (const args of [
@@ -92,17 +139,21 @@ export function setupCodexProject(): CodexProject {
   writeFileSync(
     join(home, "config.toml"),
     [
-      `model = "openai.gpt-5.5"`,
-      `model_provider = "amazon-bedrock"`,
-      `model_context_window = 1000000`,
-      `model_reasoning_effort = "low"`,
-      ``,
-      `[model_providers.amazon-bedrock.aws]`,
-      `profile = "${AWS_PROFILE}"`,
-      `region = "${AWS_REGION}"`,
-      ``,
-      `[shell_environment_policy]`,
-      `set = { AIDLC_RULES_DIR = ".codex/aidlc-rules" }`,
+      codexHomeConfigPrefix(
+        [
+          `model = "openai.gpt-5.5"`,
+          `model_provider = "amazon-bedrock"`,
+          `model_context_window = 1000000`,
+          `model_reasoning_effort = "low"`,
+          ``,
+          `[model_providers.amazon-bedrock.aws]`,
+          `profile = "${AWS_PROFILE}"`,
+          `region = "${AWS_REGION}"`,
+          ``,
+          `[shell_environment_policy]`,
+          `set = { AIDLC_RULES_DIR = ".codex/aidlc-rules" }`,
+        ].join("\n"),
+      ),
       ``,
       `[projects."${proj}"]`,
       `trust_level = "trusted"`,
@@ -124,11 +175,11 @@ export function execCodex(
   home: string,
   prompt: string,
 ): ExecResult {
-  const result = spawnSync(CODEX_BIN, ["exec", prompt], {
+  const result = spawnSync(CODEX_BIN, ["exec", ...codexExecFlags(), prompt], {
     cwd: proj,
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, CODEX_HOME: home },
+    env: { ...process.env, ...userCodexEnv(), CODEX_HOME: home },
     timeout: TEST_TIMEOUT_MS,
   });
   return {

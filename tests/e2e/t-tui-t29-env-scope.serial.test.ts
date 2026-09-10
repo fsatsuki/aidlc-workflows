@@ -88,6 +88,7 @@ import { stateFilePathFor } from "../harness/sdk-drive.ts";
 import { resolveWinNode } from "../harness/tui-drive.ts";
 import {
   cleanupTuiProjectAfterKill,
+  clearClaudeStartupModals,
   setupTuiProject,
 } from "../harness/tui-fixtures.ts";
 
@@ -235,7 +236,7 @@ function setSettingsEnvScope(projectDir: string, value: string): void {
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
 }
 
-// Launch the claude TUI in a fresh project and clear the two startup modals.
+// Launch the claude TUI in a fresh project and clear the startup modals.
 // Shared launch sequence for all three cases (each gets its own session +
 // project so they never share state). Returns once the no-workflow `[AIDLC] ready`
 // statusline is up (the pre-prompt baseline every case starts from).
@@ -255,13 +256,8 @@ function launchReady(session: string, projectDir: string): void {
     "--dangerously-skip-permissions",
   ]).rc).toBe(0);
 
-  // clear the two startup modals (idempotent — only act if present)
-  if (waitFor(session, "trust this folder", 60000, 600)) {
-    drive(["send", "--session", session, "--keys", "1"]);
-  }
-  if (waitFor(session, "Bypass Permissions mode", 15000, 600)) {
-    drive(["send", "--session", session, "--keys", "2"]);
-  }
+  // clear the startup modals (idempotent — only act if present)
+  clearClaudeStartupModals(drive, waitFor, session);
   expect(waitFor(session, "\\[AIDLC\\].*ready", 45000, 800)).toBe(true);
 }
 

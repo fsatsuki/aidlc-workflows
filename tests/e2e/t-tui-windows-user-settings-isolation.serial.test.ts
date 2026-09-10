@@ -163,6 +163,15 @@ function clearStartupModal(
   session: string,
   env: NodeJS.ProcessEnv,
 ): void {
+  // The model-upgrade nag ("Newer Opus model available") can paint before the
+  // trust/bypass modals and, unanswered, blocks the screen behind it forever.
+  // Arrow-nav, defaulted to "1. Yes" (restart Claude Code) — Down + Enter
+  // picks "2. No" to keep the run going without a mid-session restart.
+  if (waitFor(session, "Newer Opus model available", 15_000, 300, env)) {
+    drive(["send", "--session", session, "--keys", "Down", "--no-enter"], env);
+    drive(["send", "--session", session, "--keys", "Enter", "--no-enter"], env);
+  }
+
   const startupReady = waitFor(
     session,
     "trust this folder|Bypass Permissions mode|bypass permissions on",
@@ -175,8 +184,12 @@ function clearStartupModal(
     throw new Error(`Claude TUI never reached a startup state.\n${initialPane}`);
   }
 
+  // The trust modal is an arrow-nav menu ("❯ No, exit" / "Yes, I trust this
+  // folder", no numeric labels) on current Claude Code — Down + Enter selects
+  // the trusting option; a bare "1" keystroke does not move its selection.
   if (/trust this folder/i.test(initialPane)) {
-    expect(drive(["send", "--session", session, "--keys", "1"], env).rc).toBe(0);
+    expect(drive(["send", "--session", session, "--keys", "Down", "--no-enter"], env).rc).toBe(0);
+    expect(drive(["send", "--session", session, "--keys", "Enter", "--no-enter"], env).rc).toBe(0);
     expect(
       waitFor(
         session,
@@ -190,7 +203,11 @@ function clearStartupModal(
 
   const permissionPane = drive(["capture", "--session", session], env).stdout;
   if (/Bypass Permissions mode/.test(permissionPane)) {
-    expect(drive(["send", "--session", session, "--keys", "2"], env).rc).toBe(0);
+    // Arrow-nav menu ("❯ No, exit" / "Yes, I accept"), defaulted to "No,
+    // exit" — a bare "2" keystroke does not move the selection. Down + Enter
+    // picks "Yes, I accept".
+    expect(drive(["send", "--session", session, "--keys", "Down", "--no-enter"], env).rc).toBe(0);
+    expect(drive(["send", "--session", session, "--keys", "Enter", "--no-enter"], env).rc).toBe(0);
   }
   expect(
     waitFor(session, "bypass permissions on", 30_000, 300, env),

@@ -1198,6 +1198,13 @@ const tmuxBackend: Backend = {
   start(session, cwd, width, height, cmd) {
     if (cmd.length === 0) fail("no command after `--` to run in the session");
 
+    // Preseed onboarding so the startup trust modal never paints (mirrors the
+    // win32 daemon's preseed — without it, Claude's "Quick safety check" trust
+    // dialog blocks every darwin/linux live TUI run on a fresh sandbox cwd).
+    if (CLAUDE_BASENAMES.has(commandBasename(cmd[0]))) {
+      preseedClaudeOnboarding(cwd);
+    }
+
     // Kill any stale session of the same name first (idempotent start).
     tmux(["kill-session", "-t", session]);
 
@@ -3005,13 +3012,24 @@ async function cmdStartup(backend: Backend, a: Args): Promise<void> {
         action: step.action,
         screen,
       });
-      backend.send(session, "1", false, false);
+      // The trust modal is an arrow-nav menu ("❯ No, exit" / "Yes, I trust
+      // this folder"), not a numbered prompt — a bare "1" keystroke does not
+      // move the selection, so it must be dismissed with Down (to the second,
+      // trusting option) then Enter, not by typing a digit.
+      backend.send(session, "Down", false, true);
+      backend.send(session, "Enter", false, true);
     } else if (step.action === "dismiss-bypass") {
       writeTuiTrace(session, "startup_action", {
         action: step.action,
         screen,
       });
-      backend.send(session, "2", false, false);
+      // Also an arrow-nav menu ("❯ No, exit" / "Yes, I accept"), defaulted to
+      // "No, exit" — a bare "2" keystroke does not move the selection, so the
+      // trailing Enter confirms "No, exit" and kills Claude instead of
+      // accepting bypass mode (verified live). Down + Enter picks "Yes,
+      // I accept".
+      backend.send(session, "Down", false, true);
+      backend.send(session, "Enter", false, true);
     }
 
     await sleep(POLL_INTERVAL_MS);

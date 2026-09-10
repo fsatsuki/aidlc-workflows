@@ -81,6 +81,7 @@ import {
   assertTuiDriveKill,
   cleanupTuiProject,
   cleanupTuiProjectAfterKill,
+  clearClaudeStartupModals,
   setupTuiProject,
 } from "../harness/tui-fixtures.ts";
 
@@ -274,12 +275,7 @@ function launchBugfix(session: string, sandbox: string): void {
       ...claudeCommand,
     ]).rc,
   ).toBe(0);
-  if (waitFor(session, "trust this folder", 60000, 600)) {
-    drive(["send", "--session", session, "--keys", "1"]);
-  }
-  if (waitFor(session, "Bypass Permissions mode", 15000, 600)) {
-    drive(["send", "--session", session, "--keys", "2"]);
-  }
+  clearClaudeStartupModals(drive, waitFor, session);
   expect(waitFor(session, "\\[AIDLC\\].*ready", 45000, 800)).toBe(true);
 
   // Explicit `--scope bugfix` (not the bare keyword) so the shipped

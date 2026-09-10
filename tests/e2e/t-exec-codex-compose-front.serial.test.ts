@@ -65,6 +65,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getField } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
 import { REPO_ROOT } from "../harness/fixtures.ts";
+import {
+  codexExecFlags,
+  codexHomeConfigPrefix,
+  userCodexEnv,
+} from "../harness/exec-drive.ts";
 
 // The ten shipped stock scopes. A composed scope whose name is NOT one of
 // these is a CUSTOM grid: the composer authors it fresh on the sanctioned path,
@@ -141,17 +146,21 @@ function setupCodexProject(): { proj: string; home: string; root: string } {
   writeFileSync(
     join(home, "config.toml"),
     [
-      `model = "openai.gpt-5.5"`,
-      `model_provider = "amazon-bedrock"`,
-      `model_context_window = 1000000`,
-      `model_reasoning_effort = "low"`,
-      ``,
-      `[model_providers.amazon-bedrock.aws]`,
-      `profile = "${AWS_PROFILE}"`,
-      `region = "${AWS_REGION}"`,
-      ``,
-      `[shell_environment_policy]`,
-      `set = { AIDLC_RULES_DIR = ".codex/aidlc-rules" }`,
+      codexHomeConfigPrefix(
+        [
+          `model = "openai.gpt-5.5"`,
+          `model_provider = "amazon-bedrock"`,
+          `model_context_window = 1000000`,
+          `model_reasoning_effort = "low"`,
+          ``,
+          `[model_providers.amazon-bedrock.aws]`,
+          `profile = "${AWS_PROFILE}"`,
+          `region = "${AWS_REGION}"`,
+          ``,
+          `[shell_environment_policy]`,
+          `set = { AIDLC_RULES_DIR = ".codex/aidlc-rules" }`,
+        ].join("\n"),
+      ),
       ``,
       // Under workspace-write, codex carves the project-root `.codex/` out of
       // the writable workspace root (the same read-only-by-design treatment it
@@ -189,12 +198,14 @@ function codexTurn(
   prompt: string,
   opts: { resume?: boolean } = {},
 ): { rc: number; stdout: string; stderr: string } {
-  const argv = opts.resume ? ["exec", "resume", "--last", prompt] : ["exec", prompt];
+  const argv = opts.resume
+    ? ["exec", ...codexExecFlags(), "resume", "--last", prompt]
+    : ["exec", ...codexExecFlags(), prompt];
   const r = spawnSync(CODEX_BIN, argv, {
     cwd: proj,
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, CODEX_HOME: home },
+    env: { ...process.env, ...userCodexEnv(), CODEX_HOME: home },
     timeout: PER_BEAT_TIMEOUT_MS,
   });
   return { rc: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };

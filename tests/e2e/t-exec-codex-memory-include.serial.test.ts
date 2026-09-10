@@ -41,6 +41,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { REPO_ROOT } from "../harness/fixtures.ts";
+import {
+  codexExecFlags,
+  codexHomeConfigPrefix,
+  userCodexEnv,
+} from "../harness/exec-drive.ts";
 
 const CODEX_DIST = join(REPO_ROOT, "dist", "codex");
 const CODEX_BIN = process.env.AIDLC_CODEX_BIN ?? "codex";
@@ -112,14 +117,18 @@ function setupCodexProject(): { proj: string; home: string; root: string } {
   writeFileSync(
     join(home, "config.toml"),
     [
-      `model = "openai.gpt-5.5"`,
-      `model_provider = "amazon-bedrock"`,
-      `model_context_window = 1000000`,
-      `model_reasoning_effort = "low"`,
-      ``,
-      `[model_providers.amazon-bedrock.aws]`,
-      `profile = "${AWS_PROFILE}"`,
-      `region = "${AWS_REGION}"`,
+      codexHomeConfigPrefix(
+        [
+          `model = "openai.gpt-5.5"`,
+          `model_provider = "amazon-bedrock"`,
+          `model_context_window = 1000000`,
+          `model_reasoning_effort = "low"`,
+          ``,
+          `[model_providers.amazon-bedrock.aws]`,
+          `profile = "${AWS_PROFILE}"`,
+          `region = "${AWS_REGION}"`,
+        ].join("\n"),
+      ),
       ``,
       `[projects."${proj}"]`,
       `trust_level = "trusted"`,
@@ -132,11 +141,11 @@ function setupCodexProject(): { proj: string; home: string; root: string } {
 }
 
 function execCodex(proj: string, home: string, prompt: string): { rc: number; out: string } {
-  const r = spawnSync(CODEX_BIN, ["exec", prompt], {
+  const r = spawnSync(CODEX_BIN, ["exec", ...codexExecFlags(), prompt], {
     cwd: proj,
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, CODEX_HOME: home },
+    env: { ...process.env, ...userCodexEnv(), CODEX_HOME: home },
     timeout: TEST_TIMEOUT_MS,
   });
   return { rc: r.status ?? -1, out: `${r.stdout ?? ""}\n${r.stderr ?? ""}` };
