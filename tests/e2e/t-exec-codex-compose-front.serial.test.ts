@@ -89,6 +89,23 @@ const CODEX_BIN = process.env.AIDLC_CODEX_BIN ?? "codex";
 const AWS_PROFILE = process.env.AIDLC_CODEX_AWS_PROFILE ?? "codex";
 const AWS_REGION = process.env.AIDLC_CODEX_AWS_REGION ?? "us-east-2";
 
+// Opt-in overrides (shared rationale in tests/harness/exec-drive.ts): user-home
+// auth + sandbox bypass for non-default (bearer-token / bwrap-less) environments.
+function codexUserHome(): boolean { return process.env.AIDLC_CODEX_HOME_SOURCE === "user"; }
+function userCodexDir(): string { return process.env.CODEX_HOME ?? join(process.env.HOME ?? "", ".codex"); }
+function readUserCodexConfig(): string { try { return readFileSync(join(userCodexDir(), "config.toml"), "utf-8"); } catch { return ""; } }
+function userCodexEnv(): Record<string, string> {
+  const out: Record<string, string> = {};
+  try {
+    for (const line of readFileSync(join(userCodexDir(), ".env"), "utf-8").split("\n")) {
+      const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+      if (m) out[m[1]] = m[2].replace(/^["']|["']$/g, "");
+    }
+  } catch { /* self-authenticating config */ }
+  return out;
+}
+function codexBypassSandbox(): boolean { return process.env.AIDLC_CODEX_BYPASS_SANDBOX === "1"; }
+
 const TIMEOUT_S = Number.parseInt(process.env.AIDLC_TEST_TIMEOUT ?? "600", 10);
 const PER_BEAT_TIMEOUT_MS = (Number.isFinite(TIMEOUT_S) ? TIMEOUT_S : 600) * 1000;
 // Up to three live turns back to back (the approve beat alone ran ~9 min in
@@ -140,7 +157,22 @@ function setupCodexProject(): { proj: string; home: string; root: string } {
   if (trust.status !== 0) throw new Error(`trust emit failed: ${trust.stderr}`);
   writeFileSync(
     join(home, "config.toml"),
-    [
+    (codexUserHome()
+      ? [
+          readUserCodexConfig(),
+          ``,
+          `[shell_environment_policy]`,
+          `set = { AIDLC_RULES_DIR = ".codex/aidlc-rules" }`,
+          ``,
+          `[sandbox_workspace_write]`,
+          `writable_roots = ["${join(proj, ".codex")}"]`,
+          ``,
+          `[projects."${proj}"]`,
+          `trust_level = "trusted"`,
+          ``,
+          trust.stdout,
+        ]
+      : [
       `model = "openai.gpt-5.5"`,
       `model_provider = "amazon-bedrock"`,
       `model_context_window = 1000000`,
@@ -173,7 +205,7 @@ function setupCodexProject(): { proj: string; home: string; root: string } {
       `trust_level = "trusted"`,
       ``,
       trust.stdout,
-    ].join("\n"),
+    ]).join("\n"),
     "utf-8",
   );
   return { proj, home, root };
@@ -189,12 +221,15 @@ function codexTurn(
   prompt: string,
   opts: { resume?: boolean } = {},
 ): { rc: number; stdout: string; stderr: string } {
-  const argv = opts.resume ? ["exec", "resume", "--last", prompt] : ["exec", prompt];
+  const baseArgv = opts.resume ? ["exec", "resume", "--last", prompt] : ["exec", prompt];
+  const argv = codexBypassSandbox()
+    ? [baseArgv[0], "--dangerously-bypass-approvals-and-sandbox", ...baseArgv.slice(1)]
+    : baseArgv;
   const r = spawnSync(CODEX_BIN, argv, {
     cwd: proj,
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, CODEX_HOME: home },
+    env: { ...process.env, ...(codexUserHome() ? userCodexEnv() : {}), CODEX_HOME: home },
     timeout: PER_BEAT_TIMEOUT_MS,
   });
   return { rc: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
