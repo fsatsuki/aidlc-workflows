@@ -53,6 +53,40 @@ const CODEX_BIN = process.env.AIDLC_CODEX_BIN ?? "codex";
 const AWS_PROFILE = process.env.AIDLC_CODEX_AWS_PROFILE ?? "codex";
 const AWS_REGION = process.env.AIDLC_CODEX_AWS_REGION ?? "us-east-2";
 
+// Opt-in overrides (see tests/harness/exec-drive.ts for the shared rationale):
+// AIDLC_CODEX_HOME_SOURCE=user seeds config.toml from the caller's ~/.codex and
+// forwards its .env; AIDLC_CODEX_BYPASS_SANDBOX=1 adds the bypass flag. No-ops
+// unless set — this journey has its own setup, so it mirrors the helpers here.
+function codexUserHome(): boolean {
+  return process.env.AIDLC_CODEX_HOME_SOURCE === "user";
+}
+function userCodexDir(): string {
+  return process.env.CODEX_HOME ?? join(process.env.HOME ?? "", ".codex");
+}
+function readUserCodexConfig(): string {
+  try {
+    return readFileSync(join(userCodexDir(), "config.toml"), "utf-8");
+  } catch {
+    return "";
+  }
+}
+function userCodexEnv(): Record<string, string> {
+  const out: Record<string, string> = {};
+  try {
+    const raw = readFileSync(join(userCodexDir(), ".env"), "utf-8");
+    for (const line of raw.split("\n")) {
+      const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+      if (m) out[m[1]] = m[2].replace(/^["']|["']$/g, "");
+    }
+  } catch {
+    /* user config may self-authenticate */
+  }
+  return out;
+}
+function codexBypassSandbox(): boolean {
+  return process.env.AIDLC_CODEX_BYPASS_SANDBOX === "1";
+}
+
 // A multi-spawn live journey. codex exec is the slowest harness — even a "cheap"
 // verb spawn can run several minutes when the model reasons before invoking the
 // tool (a 240s cap turned that variance into a false red), and the per-repo
@@ -128,7 +162,22 @@ function setupCodexJourney(): WorkspaceJourney {
   if (trust.status !== 0) throw new Error(`trust emit failed: ${trust.stderr}`);
   writeFileSync(
     join(home, "config.toml"),
-    [
+    (codexUserHome()
+      ? [
+          readUserCodexConfig(),
+          ``,
+          `[shell_environment_policy]`,
+          `set = { AIDLC_RULES_DIR = ".codex/aidlc-rules" }`,
+          ``,
+          `[sandbox_workspace_write]`,
+          `writable_roots = ["${join(root, ".codex")}"]`,
+          ``,
+          `[projects."${root}"]`,
+          `trust_level = "trusted"`,
+          ``,
+          trust.stdout,
+        ]
+      : [
       `model = "openai.gpt-5.5"`,
       `model_provider = "amazon-bedrock"`,
       `model_context_window = 1000000`,
@@ -152,7 +201,7 @@ function setupCodexJourney(): WorkspaceJourney {
       `trust_level = "trusted"`,
       ``,
       trust.stdout,
-    ].join("\n"),
+    ]).join("\n"),
     "utf-8",
   );
   return journey;
@@ -178,12 +227,18 @@ function execCodex(
   prompt: string,
   timeoutMs: number = VERB_EXEC_MS,
 ): CodexResult {
-  const argv = ["exec", "--json", prompt];
+  const argv = codexBypassSandbox()
+    ? ["exec", "--dangerously-bypass-approvals-and-sandbox", "--json", prompt]
+    : ["exec", "--json", prompt];
   const r = spawnSync(CODEX_BIN, argv, {
     cwd: proj,
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, CODEX_HOME: home },
+    env: {
+      ...process.env,
+      ...(codexUserHome() ? userCodexEnv() : {}),
+      CODEX_HOME: home,
+    },
     timeout: timeoutMs,
     maxBuffer: 16 * 1024 * 1024,
   });
