@@ -7,6 +7,7 @@ import {
   cpSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   writeFileSync,
 } from "node:fs";
@@ -26,6 +27,50 @@ const CURSOR_BIN = process.env.AIDLC_CURSOR_BIN ?? "agent";
 
 const AWS_PROFILE = process.env.AIDLC_CODEX_AWS_PROFILE ?? "codex";
 const AWS_REGION = process.env.AIDLC_CODEX_AWS_REGION ?? "us-east-2";
+
+// Opt-in overrides for running Codex live e2e in environments that do not match
+// the default AWS-profile-on-Bedrock assumption. Both are no-ops unless set.
+//
+//   AIDLC_CODEX_HOME_SOURCE=user
+//     Seed the scratch CODEX_HOME's config.toml from the caller's real
+//     ~/.codex/config.toml (its own provider/auth — e.g. a Bedrock bearer token
+//     via AWS_BEARER_TOKEN_BEDROCK) instead of the hardcoded AWS-profile block,
+//     and forward the caller's ~/.codex/.env into the exec child's env (codex
+//     does not auto-source .env). Only the project/hook trust is appended.
+//
+//   AIDLC_CODEX_BYPASS_SANDBOX=1
+//     Pass `--dangerously-bypass-approvals-and-sandbox` to `codex exec`, for
+//     hosts that are already externally sandboxed and cannot run codex's own
+//     bubblewrap sandbox (e.g. a container without mount-namespace privileges).
+function codexUserHome(): boolean {
+  return process.env.AIDLC_CODEX_HOME_SOURCE === "user";
+}
+function userCodexDir(): string {
+  return process.env.CODEX_HOME ?? join(process.env.HOME ?? "", ".codex");
+}
+function readUserCodexConfig(): string {
+  try {
+    return readFileSync(join(userCodexDir(), "config.toml"), "utf-8");
+  } catch {
+    return "";
+  }
+}
+function userCodexEnv(): Record<string, string> {
+  const out: Record<string, string> = {};
+  try {
+    const raw = readFileSync(join(userCodexDir(), ".env"), "utf-8");
+    for (const line of raw.split("\n")) {
+      const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+      if (m) out[m[1]] = m[2].replace(/^["']|["']$/g, "");
+    }
+  } catch {
+    /* the user config.toml may self-authenticate (e.g. credential_process) */
+  }
+  return out;
+}
+function codexBypassSandbox(): boolean {
+  return process.env.AIDLC_CODEX_BYPASS_SANDBOX === "1";
+}
 const OPENCODE_MODEL =
   process.env.AIDLC_OPENCODE_MODEL ??
   "amazon-bedrock/global.anthropic.claude-sonnet-4-6";
@@ -91,7 +136,21 @@ export function setupCodexProject(): CodexProject {
   }
   writeFileSync(
     join(home, "config.toml"),
-    [
+    (codexUserHome()
+      ? [
+          // Seed the caller's real provider/auth (e.g. Bedrock bearer token),
+          // then append only the project + hook trust this scratch run needs.
+          readUserCodexConfig(),
+          ``,
+          `[shell_environment_policy]`,
+          `set = { AIDLC_RULES_DIR = ".codex/aidlc-rules" }`,
+          ``,
+          `[projects."${proj}"]`,
+          `trust_level = "trusted"`,
+          ``,
+          trust.stdout,
+        ]
+      : [
       `model = "openai.gpt-5.5"`,
       `model_provider = "amazon-bedrock"`,
       `model_context_window = 1000000`,
@@ -108,7 +167,7 @@ export function setupCodexProject(): CodexProject {
       `trust_level = "trusted"`,
       ``,
       trust.stdout,
-    ].join("\n"),
+    ]).join("\n"),
     "utf-8",
   );
   return { proj, home, root };
@@ -124,11 +183,18 @@ export function execCodex(
   home: string,
   prompt: string,
 ): ExecResult {
-  const result = spawnSync(CODEX_BIN, ["exec", prompt], {
+  const execArgs = codexBypassSandbox()
+    ? ["exec", "--dangerously-bypass-approvals-and-sandbox", prompt]
+    : ["exec", prompt];
+  const result = spawnSync(CODEX_BIN, execArgs, {
     cwd: proj,
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, CODEX_HOME: home },
+    env: {
+      ...process.env,
+      ...(codexUserHome() ? userCodexEnv() : {}),
+      CODEX_HOME: home,
+    },
     timeout: TEST_TIMEOUT_MS,
   });
   return {

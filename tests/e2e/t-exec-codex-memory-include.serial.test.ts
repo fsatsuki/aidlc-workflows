@@ -34,6 +34,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -46,6 +47,21 @@ const CODEX_DIST = join(REPO_ROOT, "dist", "codex");
 const CODEX_BIN = process.env.AIDLC_CODEX_BIN ?? "codex";
 const AWS_PROFILE = process.env.AIDLC_CODEX_AWS_PROFILE ?? "codex";
 const AWS_REGION = process.env.AIDLC_CODEX_AWS_REGION ?? "us-east-2";
+
+function codexUserHome(): boolean { return process.env.AIDLC_CODEX_HOME_SOURCE === "user"; }
+function userCodexDir(): string { return process.env.CODEX_HOME ?? join(process.env.HOME ?? "", ".codex"); }
+function readUserCodexConfig(): string { try { return readFileSync(join(userCodexDir(), "config.toml"), "utf-8"); } catch { return ""; } }
+function userCodexEnv(): Record<string, string> {
+  const out: Record<string, string> = {};
+  try {
+    for (const line of readFileSync(join(userCodexDir(), ".env"), "utf-8").split("\n")) {
+      const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+      if (m) out[m[1]] = m[2].replace(/^["']|["']$/g, "");
+    }
+  } catch { /* self-authenticating config */ }
+  return out;
+}
+function codexBypassSandbox(): boolean { return process.env.AIDLC_CODEX_BYPASS_SANDBOX === "1"; }
 
 const TIMEOUT_S = Number.parseInt(process.env.AIDLC_TEST_TIMEOUT ?? "600", 10);
 const TEST_TIMEOUT_MS = (Number.isFinite(TIMEOUT_S) ? TIMEOUT_S : 600) * 1000;
@@ -111,7 +127,16 @@ function setupCodexProject(): { proj: string; home: string; root: string } {
   if (trust.status !== 0) throw new Error(`trust emit failed: ${trust.stderr}`);
   writeFileSync(
     join(home, "config.toml"),
-    [
+    (codexUserHome()
+      ? [
+          readUserCodexConfig(),
+          ``,
+          `[projects."${proj}"]`,
+          `trust_level = "trusted"`,
+          ``,
+          trust.stdout,
+        ]
+      : [
       `model = "openai.gpt-5.5"`,
       `model_provider = "amazon-bedrock"`,
       `model_context_window = 1000000`,
@@ -125,18 +150,21 @@ function setupCodexProject(): { proj: string; home: string; root: string } {
       `trust_level = "trusted"`,
       ``,
       trust.stdout,
-    ].join("\n"),
+    ]).join("\n"),
     "utf-8",
   );
   return { proj, home, root };
 }
 
 function execCodex(proj: string, home: string, prompt: string): { rc: number; out: string } {
-  const r = spawnSync(CODEX_BIN, ["exec", prompt], {
+  const argv = codexBypassSandbox()
+    ? ["exec", "--dangerously-bypass-approvals-and-sandbox", prompt]
+    : ["exec", prompt];
+  const r = spawnSync(CODEX_BIN, argv, {
     cwd: proj,
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, CODEX_HOME: home },
+    env: { ...process.env, ...(codexUserHome() ? userCodexEnv() : {}), CODEX_HOME: home },
     timeout: TEST_TIMEOUT_MS,
   });
   return { rc: r.status ?? -1, out: `${r.stdout ?? ""}\n${r.stderr ?? ""}` };
