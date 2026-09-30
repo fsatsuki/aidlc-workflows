@@ -86,3 +86,28 @@ test("the generated Codex profile parses and trusts the exact native project pat
     rmSync(root, { recursive: true, force: true });
   }
 }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
+
+
+test("Codex omits the AWS profile when AIDLC_CODEX_AWS_PROFILE is unset, deferring to the default credential chain", () => {
+  if (process.env.AIDLC_CODEX_AWS_PROFILE) return;
+  const root = mkdtempSync(join(tmpdir(), "aidlc-exec-profile-chain-"));
+  const parent = join(root, "home");
+  mkdirSync(parent);
+  const original = { TMPDIR: process.env.TMPDIR, TMP: process.env.TMP, TEMP: process.env.TEMP };
+  Object.assign(process.env, { TMPDIR: parent, TMP: parent, TEMP: parent });
+  try {
+    const project = setupCodexProject();
+    const config = parse(readFileSync(join(project.home, "config.toml"), "utf8"));
+    const providers = config.model_providers as { "amazon-bedrock": { aws: Record<string, unknown> } };
+    const aws = providers["amazon-bedrock"].aws;
+    expect(aws.profile).toBeUndefined();
+    expect(aws.region).toBe("us-east-2");
+    rmSync(project.root, { recursive: true, force: true });
+  } finally {
+    for (const [name, value] of Object.entries(original)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+}, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
