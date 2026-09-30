@@ -84,10 +84,6 @@ export function codexBedrockEndpointConfig(env: NodeJS.ProcessEnv = process.env)
   ];
 }
 
-export function codexAwsProfileConfig(profile: string): string[] {
-  return profile ? [`profile = ${JSON.stringify(profile)}`] : [];
-}
-
 // A scratch install: dist/codex copied verbatim, git-initialized (project
 // hooks.json discovery requires a git repo), a scratch CODEX_HOME with Bedrock
 // provider + project trust + the trust pre-seed from `package.ts codex trust`
@@ -130,7 +126,7 @@ export function setupCodexProject(): CodexProject {
       ``,
       ...codexBedrockEndpointConfig(),
       `[model_providers.amazon-bedrock.aws]`,
-      ...codexAwsProfileConfig(AWS_PROFILE),
+      ...(AWS_PROFILE ? [`profile = ${JSON.stringify(AWS_PROFILE)}`] : []),
       `region = ${JSON.stringify(AWS_REGION)}`,
       ``,
       `[shell_environment_policy]`,
