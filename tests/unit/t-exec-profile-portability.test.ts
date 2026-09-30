@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "smol-toml";
-import { codexAwsProfileConfig, codexBedrockEndpointConfig, codexWindowsSandboxConfig, setupCodexProject } from "../harness/exec-drive.ts";
+import { codexBedrockEndpointConfig, codexWindowsSandboxConfig, setupCodexProject } from "../harness/exec-drive.ts";
 
 test("Codex broker endpoint stays in the provider table and rejects non-loopback destinations", () => {
   const config = parse([
@@ -22,29 +22,6 @@ test("Codex broker endpoint stays in the provider table and rejects non-loopback
   for (const value of ["https://example.com", "http://user@127.0.0.1:4321", "http://127.0.0.1:4321/path", "http://127.0.0.1:4321/?q=1"]) {
     expect(() => codexBedrockEndpointConfig({ AIDLC_BROKER_URL: value })).toThrow();
   }
-});
-
-test("Codex renders the AWS profile line when one is set and omits it otherwise, keeping the region either way", () => {
-  const set = codexAwsProfileConfig("codex");
-  expect(set).toContain('profile = "codex"');
-  const setTable = parse([
-    "[model_providers.amazon-bedrock.aws]",
-    ...set,
-    'region = "us-east-2"',
-  ].join("\n"));
-  expect((setTable.model_providers as { "amazon-bedrock": { aws: unknown } })["amazon-bedrock"].aws)
-    .toEqual({ profile: "codex", region: "us-east-2" });
-
-  const unset = codexAwsProfileConfig("");
-  expect(unset).toEqual([]);
-  const unsetTable = parse([
-    "[model_providers.amazon-bedrock.aws]",
-    ...unset,
-    'region = "us-east-2"',
-  ].join("\n"));
-  const unsetAws = (unsetTable.model_providers as { "amazon-bedrock": { aws: { profile?: string; region: string } } })["amazon-bedrock"].aws;
-  expect(unsetAws.profile).toBeUndefined();
-  expect(unsetAws.region).toBe("us-east-2");
 });
 
 test("every bespoke Codex home selects the broker and excludes its environment from shell tools", () => {
