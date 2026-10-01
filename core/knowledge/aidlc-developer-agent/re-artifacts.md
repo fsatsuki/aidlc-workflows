@@ -29,6 +29,17 @@ This rule names **no fixed command**, so it holds on any OS and harness. Pick wh
 
 This is what lets a fast, structure-level (Minimal-depth) scan ALSO be accurate: a few cheap whole-scope counts give exact figures without reading every file body — and counting only the load-bearing numbers keeps the scan fast.
 
+## Conciseness Discipline (keep RE fast — generation volume is the main cost)
+
+The RE stage is a map, not a book. Generation volume — how much prose the artifacts contain — is the dominant time cost of RE, far more than counting. Write the **least that fully serves the downstream stage**:
+
+- **Volume budget**: at Minimal depth the nine artifacts together should total **roughly 250–400 lines**, not thousands. A correct, dense map beats a long narrative. (Empirically, a complete and accurate RE of a ~12k-file repo fits in ~280 lines.)
+- **Information over prose**: prefer short labelled facts, lists, and the counted numbers over explanatory paragraphs. State each fact once; do not restate it across artifacts. Cut hedging, background, and anything a competent downstream agent already knows.
+- **No diagrams at Minimal depth** unless the active intent asks for them: Mermaid component/sequence/interaction diagrams and long dependency-wiring narratives are a Standard/Comprehensive-depth add-on. At Minimal depth, name the key relationships in one line each instead.
+- **Stop when the map is complete**: once every subsystem is named, the load-bearing numbers are counted, and the intent-relevant finding is recorded, the artifact is done. Do not pad to look thorough.
+
+Conciseness and the count discipline work together: the numbers are exact (counted), the prose around them is minimal.
+
 ### Required Artifacts
 
 1. **business-overview.md** — Business domain context, purpose, key functionality
@@ -92,25 +103,25 @@ This is what lets a fast, structure-level (Minimal-depth) scan ALSO be accurate:
 ## Architecture Analysis
 
 ### System Overview
-[High-level description of the system]
+[High-level description of the system — a few sentences]
 
 ### Architectural Style
-[Monolithic / Microservices / Serverless / Hybrid — with evidence]
+[Monolithic / Microservices / Serverless / Hybrid — with one-line evidence]
 
 ### Component Relationships
-[Mermaid diagram showing component interactions]
+[At Minimal depth: name the key relationships in one line each. Add a Mermaid diagram ONLY at Standard/Comprehensive depth or when the intent asks.]
 
 ### Data Flow
-[How data moves through the system]
+[How data moves through the system — brief]
 
 ### Key Design Decisions
-[Notable architectural choices and their implications]
+[Notable architectural choices and their implications — the few that matter]
 
 ### Improvement Opportunities
-[Areas where the architecture could be strengthened]
+[Areas where the architecture could be strengthened — only intent-relevant ones]
 
 ## Interaction Diagrams
-[Mermaid sequence or flow diagrams showing how key business transactions are implemented across components]
+[Standard/Comprehensive depth, or on request, only. Omit at Minimal depth.]
 ```
 
 ### Run Record (reverse-engineering-timestamp.md)
