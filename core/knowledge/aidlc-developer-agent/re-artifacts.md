@@ -4,6 +4,20 @@
 
 All RE artifacts are created under `aidlc/spaces/<active-space>/codekb/<repo>/` — the durable per-repo code knowledge base shared across intents (the space-level directory the `codekb-path --repo <repo>` tool resolves).
 
+## Quantitative Evidence Discipline (model- and OS-independent)
+
+Every **numeric claim** written into any CodeKB artifact — API endpoint counts, route-registration counts, file counts, lines of code, type-ignore / lint-suppression counts, TODO/FIXME counts, component counts, dependency counts — MUST be produced by a **deterministic count over the whole target tree**, never extrapolated from a single file or a sample.
+
+- **Do not infer counts** from one file's matches or from a representative subset. Count the full scope you are reporting on.
+- **The means is yours to choose for the environment** — this rule names no specific command, so it holds on any OS and any harness:
+  - POSIX shells: a repo-wide `grep -rc` / `find … | wc -l` style count.
+  - Windows PowerShell / cmd: `Select-String` / `Get-ChildItem -Recurse | Measure-Object`.
+  - Or a language runtime / editor search API when a shell count is unavailable.
+- **Annotate each number** with the scope it was counted over and mark approximations with "about"/"~" (e.g. "about 1,006 `type: ignore` occurrences across `src/`, by whole-tree count").
+- **If no counting means is available in this environment, leave the number blank and write "not counted — <reason>"** rather than writing an estimated value. A blank is better than a wrong number.
+
+This discipline is what makes a fast, structure-level (Minimal-depth) scan ALSO accurate: cheap whole-tree counts give exact figures without reading every file body.
+
 ### Required Artifacts
 
 1. **business-overview.md** — Business domain context, purpose, key functionality
@@ -34,7 +48,7 @@ All RE artifacts are created under `aidlc/spaces/<active-space>/codekb/<repo>/` 
 - **Build Dependencies**: [package → package relationships]
 
 ### APIs Discovered
-- [API type] — [location] — [endpoints/methods count]
+- [API type] — [location] — [endpoints/methods count — from a whole-tree count, not a sample; see Quantitative Evidence Discipline]
 
 ### Frameworks & Libraries
 - [name] — [version] — [purpose]
@@ -50,7 +64,7 @@ All RE artifacts are created under `aidlc/spaces/<active-space>/codekb/<repo>/` 
 - **Documentation**: [README presence, doc comments quality]
 
 ### Technical Debt Signals
-- [signal description and location]
+- [signal description and location — any count here is a whole-tree count per the Quantitative Evidence Discipline]
 
 ## Handoff Summary
 - **Intent-relevant finding**: [the finding most relevant to the active intent, with file/line evidence]
