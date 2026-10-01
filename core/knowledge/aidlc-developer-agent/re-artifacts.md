@@ -6,17 +6,22 @@ All RE artifacts are created under `aidlc/spaces/<active-space>/codekb/<repo>/` 
 
 ## Quantitative Evidence Discipline (model- and OS-independent)
 
-Every **numeric claim** written into any CodeKB artifact — API endpoint counts, route-registration counts, file counts, lines of code, type-ignore / lint-suppression counts, TODO/FIXME counts, component counts, dependency counts — MUST be produced by a **deterministic count over the whole target tree**, never extrapolated from a single file or a sample.
+Every **numeric claim** written into any CodeKB artifact — API endpoint / route-registration counts, file counts, lines of code, type-ignore / lint-suppression counts, TODO/FIXME counts, component counts, dependency counts — MUST equal the **output of a counting command you actually ran over the whole target tree**. A number you did not obtain from a command's output is forbidden.
 
-- **Do not infer counts** from one file's matches or from a representative subset. Count the full scope you are reporting on.
-- **The means is yours to choose for the environment** — this rule names no specific command, so it holds on any OS and any harness:
-  - POSIX shells: a repo-wide `grep -rc` / `find … | wc -l` style count.
-  - Windows PowerShell / cmd: `Select-String` / `Get-ChildItem -Recurse | Measure-Object`.
-  - Or a language runtime / editor search API when a shell count is unavailable.
-- **Annotate each number** with the scope it was counted over and mark approximations with "about"/"~" (e.g. "about 1,006 `type: ignore` occurrences across `src/`, by whole-tree count").
-- **If no counting means is available in this environment, leave the number blank and write "not counted — <reason>"** rather than writing an estimated value. A blank is better than a wrong number.
+**This is an execution requirement, not a labelling requirement.** Writing "by whole-tree count" next to a number you estimated is a violation. The number must come FROM the command.
 
-This discipline is what makes a fast, structure-level (Minimal-depth) scan ALSO accurate: cheap whole-tree counts give exact figures without reading every file body.
+Mandatory procedure for every count:
+
+1. **Run a counting command over the whole scope** you are reporting on — never one file, never a sample. The means is yours to choose for the environment (this rule names no fixed command, so it holds on any OS):
+   - POSIX: `grep -rhoE '<pattern>' <root> | wc -l`, `grep -rc`, `find <root> -name '*.py' | wc -l`.
+   - Windows PowerShell: `(Get-ChildItem -Recurse -Filter *.py | Measure-Object).Count`, `(Select-String -Path (Get-ChildItem -Recurse) -Pattern '<p>').Count`.
+   - Or a language runtime / editor search API that returns a total over the whole tree.
+2. **Record the exact command and its raw numeric output** in the developer scan's `### Count Log` (template below) — one line per count: `` `<command>` → <number> ``.
+3. **The artifact number MUST be that recorded output**, verbatim (round only for display and mark with "~"/"about"). If a prose number and the Count Log disagree, the Count Log wins and the prose is wrong.
+4. **Sanity check against a sub-part**: if any single file's count exceeds your whole-tree total, your command scope was wrong — re-run over the correct root before writing the number. (A real example of the failure this prevents: reporting ~149 route registrations for a package whose single largest file already has 173.)
+5. **If no counting means is available in this environment, leave the number blank and write "not counted — <reason>"** — never estimate. A blank beats a wrong number.
+
+This discipline is what lets a fast, structure-level (Minimal-depth) scan ALSO be accurate: a cheap whole-tree count gives the exact figure without reading every file body — but only if the number is the command's output, not the model's guess.
 
 ### Required Artifacts
 
@@ -39,6 +44,10 @@ This discipline is what makes a fast, structure-level (Minimal-depth) scan ALSO 
 - **Analyzed deeply**: [repo-relative dirs/files actually read and understood, one per line]
 - **Skimmed only**: [areas noted at directory granularity without deep reading]
 
+### Count Log (Quantitative Evidence Discipline — one line per numeric claim)
+- `<exact command you ran>` → <raw numeric output>
+- (every number in every artifact below must trace to a line here; if a count could not be run, write "not counted — <reason>")
+
 ### Packages Found
 - [package name] — [type] — [language] — [purpose]
 
@@ -48,7 +57,7 @@ This discipline is what makes a fast, structure-level (Minimal-depth) scan ALSO 
 - **Build Dependencies**: [package → package relationships]
 
 ### APIs Discovered
-- [API type] — [location] — [endpoints/methods count — from a whole-tree count, not a sample; see Quantitative Evidence Discipline]
+- [API type] — [location] — [endpoints/methods count — MUST equal a Count Log line; no estimate]
 
 ### Frameworks & Libraries
 - [name] — [version] — [purpose]
@@ -64,7 +73,7 @@ This discipline is what makes a fast, structure-level (Minimal-depth) scan ALSO 
 - **Documentation**: [README presence, doc comments quality]
 
 ### Technical Debt Signals
-- [signal description and location — any count here is a whole-tree count per the Quantitative Evidence Discipline]
+- [signal description and location — any count MUST equal a Count Log line]
 
 ## Handoff Summary
 - **Intent-relevant finding**: [the finding most relevant to the active intent, with file/line evidence]
