@@ -6,22 +6,28 @@ All RE artifacts are created under `aidlc/spaces/<active-space>/codekb/<repo>/` 
 
 ## Quantitative Evidence Discipline (model- and OS-independent)
 
-Every **numeric claim** written into any CodeKB artifact — API endpoint / route-registration counts, file counts, lines of code, type-ignore / lint-suppression counts, TODO/FIXME counts, component counts, dependency counts — MUST equal the **output of a counting command you actually ran over the whole target tree**. A number you did not obtain from a command's output is forbidden.
+A **numeric claim** written into a CodeKB artifact MUST equal the **output of a counting operation you actually ran over the whole scope you are reporting on**. A number you did not obtain from an executed count is forbidden. **This is an execution requirement, not a labelling requirement** — writing "whole-tree count" next to an estimate is a violation.
 
-**This is an execution requirement, not a labelling requirement.** Writing "by whole-tree count" next to a number you estimated is a violation. The number must come FROM the command.
+### Count only what matters (keep it fast)
 
-Mandatory procedure for every count:
+Do NOT exhaustively count every pattern in the repo. Count only the **few load-bearing numbers a downstream stage actually needs** to understand the system, and reach them with the **fewest counts possible**:
 
-1. **Run a counting command over the whole scope** you are reporting on — never one file, never a sample. The means is yours to choose for the environment (this rule names no fixed command, so it holds on any OS):
-   - POSIX: `grep -rhoE '<pattern>' <root> | wc -l`, `grep -rc`, `find <root> -name '*.py' | wc -l`.
-   - Windows PowerShell: `(Get-ChildItem -Recurse -Filter *.py | Measure-Object).Count`, `(Select-String -Path (Get-ChildItem -Recurse) -Pattern '<p>').Count`.
-   - Or a language runtime / editor search API that returns a total over the whole tree.
-2. **Record the exact command and its raw numeric output** in the developer scan's `### Count Log` (template below) — one line per count: `` `<command>` → <number> ``.
-3. **The artifact number MUST be that recorded output**, verbatim (round only for display and mark with "~"/"about"). If a prose number and the Count Log disagree, the Count Log wins and the prose is wrong.
-4. **Sanity check against a sub-part**: if any single file's count exceeds your whole-tree total, your command scope was wrong — re-run over the correct root before writing the number. (A real example of the failure this prevents: reporting ~149 route registrations for a package whose single largest file already has 173.)
-5. **If no counting means is available in this environment, leave the number blank and write "not counted — <reason>"** — never estimate. A blank beats a wrong number.
+- **Required counts** (always, because design/implementation stages rely on them): total source-file count; approximate total LOC; number of top-level components/packages; the size of the primary external interface surface (e.g. HTTP routes / API endpoints / registered tools — whichever the system exposes), as a single whole-scope total.
+- **Optional counts** (only if the active intent makes them relevant): tech-debt tallies (lint suppressions, TODO/FIXME, type-ignore), per-subtree breakdowns, secondary interface surfaces. If an optional number is not needed, **omit it** rather than counting it — a smaller, correct artifact beats a larger one.
+- **Aggregate, don't enumerate**: when several patterns belong to one quantity (e.g. all the verbs of one routing style), obtain the total in **one** aggregated count, not one count per pattern. Break a total into parts only when the intent needs the breakdown.
 
-This discipline is what lets a fast, structure-level (Minimal-depth) scan ALSO be accurate: a cheap whole-tree count gives the exact figure without reading every file body — but only if the number is the command's output, not the model's guess.
+### How to count (you choose the means for the environment)
+
+This rule names **no fixed command**, so it holds on any OS and harness. Pick whatever counts deterministically over the whole scope in the current environment — a POSIX shell search, a Windows PowerShell search, or a language-runtime / editor search API. The requirement is the *behavior* (an executed whole-scope count whose raw output becomes the number), never a particular tool.
+
+### Record and self-check
+
+1. **Record each executed count and its raw output** in the developer scan's `### Count Log` — one line per required number: `` <what was counted / command or operation> → <raw output> ``.
+2. **Each artifact number MUST be a Count Log output**, verbatim (round only for display, marked "~"/"about"). If prose and the Count Log disagree, the Count Log wins.
+3. **One cheap sanity check on the primary interface total**: if any single file's share already exceeds your whole-scope total, the scope was wrong — re-run before writing the number. (Prevents the real failure of reporting ~149 routes for a package whose largest file alone had 173.)
+4. **If a count cannot be run here, leave the number blank with "not counted — <reason>"** — never estimate.
+
+This is what lets a fast, structure-level (Minimal-depth) scan ALSO be accurate: a few cheap whole-scope counts give exact figures without reading every file body — and counting only the load-bearing numbers keeps the scan fast.
 
 ### Required Artifacts
 
@@ -44,9 +50,9 @@ This discipline is what lets a fast, structure-level (Minimal-depth) scan ALSO b
 - **Analyzed deeply**: [repo-relative dirs/files actually read and understood, one per line]
 - **Skimmed only**: [areas noted at directory granularity without deep reading]
 
-### Count Log (Quantitative Evidence Discipline — one line per numeric claim)
-- `<exact command you ran>` → <raw numeric output>
-- (every number in every artifact below must trace to a line here; if a count could not be run, write "not counted — <reason>")
+### Count Log (Quantitative Evidence Discipline — one line per REQUIRED numeric claim)
+- <what was counted> → <raw output of the executed count>
+- (count only the load-bearing numbers; aggregate related patterns into one count; every number in the artifacts must trace to a line here; a count that could not run → "not counted — <reason>")
 
 ### Packages Found
 - [package name] — [type] — [language] — [purpose]
@@ -57,7 +63,7 @@ This discipline is what lets a fast, structure-level (Minimal-depth) scan ALSO b
 - **Build Dependencies**: [package → package relationships]
 
 ### APIs Discovered
-- [API type] — [location] — [endpoints/methods count — MUST equal a Count Log line; no estimate]
+- [API type] — [location] — [primary interface total — MUST equal a Count Log line; no estimate]
 
 ### Frameworks & Libraries
 - [name] — [version] — [purpose]
@@ -73,7 +79,7 @@ This discipline is what lets a fast, structure-level (Minimal-depth) scan ALSO b
 - **Documentation**: [README presence, doc comments quality]
 
 ### Technical Debt Signals
-- [signal description and location — any count MUST equal a Count Log line]
+- [signal description and location — only count a tally here if the intent needs it; any number MUST equal a Count Log line]
 
 ## Handoff Summary
 - **Intent-relevant finding**: [the finding most relevant to the active intent, with file/line evidence]
