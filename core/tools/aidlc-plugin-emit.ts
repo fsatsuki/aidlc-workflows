@@ -7,6 +7,8 @@
 
 import { createHash } from "node:crypto";
 import {
+  accessSync,
+  constants as fsConstants,
   cpSync,
   existsSync,
   lstatSync,
@@ -116,7 +118,14 @@ export function pluginBuildLockPath(outDir: string): string {
   const key = createHash("sha256")
     .update(canonicalOutputPath(outDir))
     .digest("hex");
-  return join(tmpdir(), "aidlc-plugin-build-locks", key);
+  return join(pluginBuildLocksRoot(), key);
+}
+
+// One folder per user: a shared 0700 folder owned by whoever built first would
+// leave every other user on the machine unable to create a lock under it.
+function pluginBuildLocksRoot(): string {
+  const uid = typeof process.getuid === "function" ? `-${process.getuid()}` : "";
+  return join(tmpdir(), `aidlc-plugin-build-locks${uid}`);
 }
 
 function withPluginBuildOutputLock<T>(
@@ -125,7 +134,17 @@ function withPluginBuildOutputLock<T>(
   action: () => T,
 ): T {
   const lockDir = pluginBuildLockPath(outDir);
-  mkdirSync(dirname(lockDir), { recursive: true, mode: 0o700 });
+  const locksRoot = dirname(lockDir);
+  mkdirSync(locksRoot, { recursive: true, mode: 0o700 });
+  // The lock helper reads any create error as contention and retries until the
+  // timeout, so a folder this user cannot write to is refused here, by name.
+  try {
+    accessSync(locksRoot, fsConstants.W_OK | fsConstants.X_OK);
+  } catch (error) {
+    throw new Error(
+      `plugin build lock folder "${locksRoot}" is not writable: ${(error as NodeJS.ErrnoException).code ?? error}. Set TMPDIR to a folder you own.`,
+    );
+  }
   const result = runWithOwnerStampedLock(
     lockDir,
     Math.max(0, Math.floor(timeoutMs / PLUGIN_BUILD_LOCK_RETRY_MS)),

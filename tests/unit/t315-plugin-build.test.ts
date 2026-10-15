@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, test, setDefaultTimeout } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -307,6 +308,41 @@ describe("t315 standalone plugin builder", () => {
       rmSync(lockDir, { recursive: true, force: true });
     }
   });
+
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "direct emission names a lock folder this user cannot write instead of waiting",
+    () => {
+      const pluginRoot = copyPlugin("unwritable-lock-folder");
+      const outDir = join(scratch, "unwritable-lock-output");
+      const target = readPluginTargets(
+        join(SOURCE_TOOLS, "data", "plugin-targets.json"),
+      ).claude;
+      const previousTmp = process.env.TMPDIR;
+      process.env.TMPDIR = join(scratch, "unwritable-tmp");
+      const lockDir = pluginBuildLockPath(outDir);
+      const locksRoot = dirname(lockDir);
+      mkdirSync(locksRoot, { recursive: true });
+      chmodSync(locksRoot, 0o500);
+      const startedAt = Date.now();
+      try {
+        expect(() =>
+          buildPluginProjection({
+            pluginRoot,
+            target,
+            outDir,
+            templateHooksDir: join(SOURCE_TOOLS, "data", "plugin-hooks-template"),
+            lockTimeoutMs: 60_000,
+          })
+        ).toThrow(locksRoot);
+        expect(Date.now() - startedAt).toBeLessThan(10_000);
+        expect(existsSync(outDir)).toBe(false);
+      } finally {
+        chmodSync(locksRoot, 0o700);
+        if (previousTmp === undefined) delete process.env.TMPDIR;
+        else process.env.TMPDIR = previousTmp;
+      }
+    },
+  );
 
   test("direct emission reclaims a dead owner-stamped output lock", () => {
     const pluginRoot = copyPlugin("dead-output-lock");
