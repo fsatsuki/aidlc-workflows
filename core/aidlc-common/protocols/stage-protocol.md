@@ -595,14 +595,16 @@ the later stages use it too.
 **Step 3b: If "I'll edit the file" (self-guided mode):**
 - Tell the user: "Edit the file at `[file path]`. When you're done, send **done** or **ready** and I'll continue."
 - WAIT for the user to send a completion signal (any message like "done", "ready", "finished", "continue", etc.)
+- Before you tell them to edit the file, record the questions it holds with `{{INVOKE}} engine log decision --stage <slug> --decision '<question numbers in the file>' --options '<the options offered>'`, as Step 3a does for a batch
 - Do NOT read the file or proceed until the user sends a completion signal
-- After the completion signal, read the answers, present their consolidated
+- After the completion signal, read the answers and record them with `{{INVOKE}} engine log answer --stage <slug> --details '<the answers found in the file>'`, then present their consolidated
   summary, and run the same persisted **Looks correct / Request changes**
   checkpoint from Step 3a only when the step asks for the summary confirmation. Editing the source file does not waive an enabled checkpoint; when the step does not ask for it, generate directly with no checkpoint or receipt.
 
 **Step 3c: If "Chat" (freeform mode):**
 - Engage in open-ended conversation about the stage's topic
 - Ask questions naturally and let the user elaborate at their own pace
+- Before you present a question or a group of questions, record it with `{{INVOKE}} engine log decision --stage <slug> --decision '<the question>' --options '<the options offered, if any>'`, and record each reply the person gives with `{{INVOKE}} engine log answer --stage <slug> --details '<their answers>'` as it comes, never as one entry at the end of the conversation
 - Extract decisions and answers from the conversation as they emerge
 - To end the conversation, tell the user: "When you're ready to proceed, say **done** and I'll summarize our decisions."
 - After the conversation reaches natural resolution, write all extracted answers back to the questions file (update each `[Answer]:` tag with the decided value, timestamp, and `**Mode:** chat`)
@@ -638,6 +640,7 @@ After collecting answers, analyze ALL responses for:
 - Missing details needed for the next step
 
 If ANY ambiguity found: create follow-up questions and resolve before proceeding.
+Record each follow-up in every mode (guided, self-guided, chat) the way Steps 3a-3c record a first question: `log decision` before it is asked, `log answer` after it is answered.
 Incomplete answers lead to poor designs.
 
 **Write every pending question into the questions file before you end the turn —
